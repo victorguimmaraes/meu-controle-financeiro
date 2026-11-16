@@ -1,0 +1,19 @@
+{
+  "name": "Meu Controle Financeiro",
+  "short_name": "Meu Controle",
+  "description": "Controle simples de ganhos, gastos e dinheiro guardado.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F5FC",
+  "theme_color": "#8B6CE8",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

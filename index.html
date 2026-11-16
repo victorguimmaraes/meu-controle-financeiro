@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#8B6CE8">
+  <meta name="description" content="Controle simples de ganhos, gastos e dinheiro guardado.">
+  <title>Meu Controle</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SEU RESUMO FINANCEIRO</p>
+        <h1>Meu Controle</h1>
+      </div>
+      <button class="icon-button" id="backupBtn" aria-label="Backup" title="Backup e restauração">↥</button>
+    </header>
+    <p class="storage-warning" id="storageWarning" role="alert" hidden></p>
+
+    <section class="month-row">
+      <button class="month-arrow" id="prevMonth" aria-label="Mês anterior">‹</button>
+      <div class="month-label" id="monthLabel">Novembro 2026</div>
+      <button class="month-arrow" id="nextMonth" aria-label="Próximo mês">›</button>
+    </section>
+
+    <section class="hero-card balance-card">
+      <p class="card-label">TOTAL DO PATRIMÔNIO ATUAL</p>
+      <div class="hero-value-row">
+        <div class="hero-value balance-value" id="totalAmount">R$ 0,00</div>
+        <button class="eye-toggle" type="button" data-eye="totalAmount" aria-label="Ocultar patrimônio atual"></button>
+      </div>
+      <div class="total-breakdown">
+        <div class="total-breakdown-row">
+          <span id="bankBalanceLabel">Saldo atual da conta</span>
+          <strong id="currentBalance">R$ 0,00</strong>
+          <button class="eye-toggle" type="button" data-eye="currentBalance" aria-label="Ocultar saldo bancário"></button>
+          <button class="balance-edit" id="editInitialBalance" aria-label="Editar saldo inicial">Editar</button>
+        </div>
+        <div class="total-breakdown-row">
+          <span>Dinheiro guardado</span>
+          <strong id="savedAmount">R$ 0,00</strong>
+          <button class="eye-toggle" type="button" data-eye="savedAmount" aria-label="Ocultar dinheiro guardado"></button>
+          <button class="balance-edit" id="editSavings" aria-label="Editar dinheiro guardado">Editar</button>
+        </div>
+        <p class="total-note">Informe como guardado apenas o valor que não está incluído no saldo da conta.</p>
+        <p class="balance-message" id="balanceMessage" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card">
+        <span class="stat-icon income-icon">↗</span>
+        <p>Ganhos do mês</p>
+        <div class="money-with-eye"><strong class="positive" id="monthlyIncome">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="monthlyIncome" aria-label="Ocultar ganhos do mês"></button></div>
+      </article>
+      <article class="stat-card">
+        <span class="stat-icon expense-icon">↘</span>
+        <p>Total gasto no mês</p>
+        <div class="money-with-eye"><strong class="expense-value" id="monthlyExpenses">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="monthlyExpenses" aria-label="Ocultar gastos do mês"></button></div>
+      </article>
+    </section>
+
+    <section class="section-block transfer-section">
+      <div class="section-heading">
+        <h2>Transferências</h2>
+        <span class="muted small">Entre banco e dinheiro guardado</span>
+      </div>
+      <div class="transfer-actions">
+        <button class="transfer-action transfer-save" id="addSavingTransfer">↓ Guardar dinheiro</button>
+        <button class="transfer-action transfer-withdraw" id="addWithdrawalTransfer">↑ Resgatar dinheiro</button>
+      </div>
+      <p class="muted small transfer-note">Transferências não são ganhos nem gastos e não alteram o patrimônio total.</p>
+    </section>
+
+    <section class="section-block bills-section">
+      <div class="section-heading">
+        <h2>Contas a pagar</h2>
+        <button class="text-button limit-edit" id="addBill">＋ Adicionar conta</button>
+      </div>
+      <div class="bills-list" id="billsList" aria-live="polite">
+        <div class="empty-state">Nenhuma conta cadastrada.</div>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-heading">
+        <h2>Minhas Metas</h2>
+        <div class="goal-actions">
+          <button class="eye-toggle" type="button" id="goalValuesEye" data-eye="goalValues" aria-label="Ocultar valores das metas"></button>
+          <button class="text-button limit-edit" id="addGoal">＋ Adicionar meta</button>
+        </div>
+      </div>
+      <div id="goalsList" class="goals-list">
+        <div class="empty-state">Suas metas financeiras aparecerão aqui.</div>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Comparação mensal</h2>
+        <span class="muted small">Mês selecionado × anterior</span>
+      </div>
+      <div class="comparison-card">
+        <div class="comparison-heading"><strong>Ganhos</strong><div class="money-with-eye"><span class="positive" id="incomeDifference">R$ 0,00 (0%)</span><button class="eye-toggle" type="button" data-eye="incomeDifference" aria-label="Ocultar diferença de ganhos"></button></div></div>
+        <div class="comparison-months"><span id="incomePreviousLabel">Mês anterior</span><div class="money-with-eye"><strong id="incomePreviousValue">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="incomePreviousValue" aria-label="Ocultar ganhos do mês anterior"></button></div></div>
+        <div class="comparison-track"><span class="previous-bar" id="incomePreviousBar"></span></div>
+        <div class="comparison-months"><span id="incomeCurrentLabel">Mês atual</span><div class="money-with-eye"><strong id="incomeCurrentValue">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="incomeCurrentValue" aria-label="Ocultar ganhos do mês selecionado"></button></div></div>
+        <div class="comparison-track"><span class="current-bar income-bar" id="incomeCurrentBar"></span></div>
+      </div>
+      <div class="comparison-card">
+        <div class="comparison-heading"><strong>Gastos</strong><div class="money-with-eye"><span class="expense-value" id="expenseDifference">R$ 0,00 (0%)</span><button class="eye-toggle" type="button" data-eye="expenseDifference" aria-label="Ocultar diferença de gastos"></button></div></div>
+        <div class="comparison-months"><span id="expensePreviousLabel">Mês anterior</span><div class="money-with-eye"><strong id="expensePreviousValue">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="expensePreviousValue" aria-label="Ocultar gastos do mês anterior"></button></div></div>
+        <div class="comparison-track"><span class="previous-bar" id="expensePreviousBar"></span></div>
+        <div class="comparison-months"><span id="expenseCurrentLabel">Mês atual</span><div class="money-with-eye"><strong id="expenseCurrentValue">R$ 0,00</strong><button class="eye-toggle" type="button" data-eye="expenseCurrentValue" aria-label="Ocultar gastos do mês selecionado"></button></div></div>
+        <div class="comparison-track"><span class="current-bar expense-bar" id="expenseCurrentBar"></span></div>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Média financeira</h2>
+        <span class="muted small" id="averageMonths">Sem histórico</span>
+      </div>
+      <div class="average-card">
+        <div><span>Ganhos médios / mês</span><div class="money-with-eye"><strong class="positive" id="averageIncome">—</strong><button class="eye-toggle" type="button" data-eye="averageIncome" aria-label="Ocultar média de ganhos"></button></div></div>
+        <div><span>Gastos médios / mês</span><div class="money-with-eye"><strong class="expense-value" id="averageExpenses">—</strong><button class="eye-toggle" type="button" data-eye="averageExpenses" aria-label="Ocultar média de gastos"></button></div></div>
+        <p class="muted small" id="averageNote">Meses anteriores com lançamentos; mês atual não incluído.</p>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Comparação do patrimônio</h2>
+        <span class="muted small">Fechamento dos períodos</span>
+      </div>
+      <div class="comparison-card">
+        <div class="comparison-heading"><strong>Patrimônio acumulado</strong><div class="money-with-eye"><span id="patrimonyDifference">Indisponível</span><button class="eye-toggle" type="button" data-eye="patrimonyDifference" aria-label="Ocultar diferença do patrimônio"></button></div></div>
+        <div class="comparison-months"><span id="patrimonyPreviousLabel">Mês anterior</span><div class="money-with-eye"><strong id="patrimonyPreviousValue">Indisponível</strong><button class="eye-toggle" type="button" data-eye="patrimonyPreviousValue" aria-label="Ocultar patrimônio do mês anterior"></button></div></div>
+        <div class="comparison-track"><span class="previous-bar" id="patrimonyPreviousBar"></span></div>
+        <div class="comparison-months"><span id="patrimonyCurrentLabel">Mês selecionado</span><div class="money-with-eye"><strong id="patrimonyCurrentValue">Indisponível</strong><button class="eye-toggle" type="button" data-eye="patrimonyCurrentValue" aria-label="Ocultar patrimônio do mês selecionado"></button></div></div>
+        <div class="comparison-track"><span class="current-bar income-bar" id="patrimonyCurrentBar"></span></div>
+        <p class="muted small patrimony-note" id="patrimonyNote"></p>
+      </div>
+      <div class="average-card patrimony-average">
+        <div><span>Média mensal de crescimento</span><div class="money-with-eye"><strong id="averagePatrimonyGrowth">—</strong><button class="eye-toggle" type="button" data-eye="averagePatrimonyGrowth" aria-label="Ocultar média de crescimento do patrimônio"></button></div></div>
+        <p class="muted small" id="patrimonyGrowthNote">Meses completos com fechamentos confiáveis.</p>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Alertas inteligentes</h2>
+        <button class="text-button limit-edit" id="editMonthlyLimit">Configurar limite</button>
+      </div>
+      <div class="alerts-card" id="smartAlerts" aria-live="polite"></div>
+      <div class="limit-line"><p class="limit-status" id="limitStatus"></p><button class="eye-toggle" type="button" data-eye="limitStatus" aria-label="Ocultar valores do limite mensal"></button></div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Orçamento Inteligente</h2>
+        <div class="goal-actions">
+          <button class="eye-toggle" type="button" data-eye="smartBudgetValues" aria-label="Ocultar valores do orçamento"></button>
+          <button class="text-button limit-edit" id="editSmartBudget">Ajustar limite</button>
+        </div>
+      </div>
+      <div class="comparison-card smart-budget-card" aria-live="polite">
+        <div class="smart-budget-grid">
+          <div><span>Limite recomendado</span><strong id="smartBudgetRecommended">R$ 0,00</strong></div>
+          <div><span>Limite deste mês</span><strong id="smartBudgetLimit">R$ 0,00</strong></div>
+          <div><span>Dinheiro livre planejado</span><strong id="smartBudgetFreeMoney">R$ 0,00</strong></div>
+          <div><span>Percentual recomendado</span><strong id="smartBudgetRate">10%</strong></div>
+          <div><span>Já gastei</span><strong id="smartBudgetSpent">R$ 0,00</strong></div>
+          <div><span>Ainda disponível</span><strong id="smartBudgetRemaining">R$ 0,00</strong></div>
+        </div>
+        <div class="comparison-months"><span>Limite utilizado</span><strong id="smartBudgetPercent">0%</strong></div>
+        <div class="comparison-track smart-budget-track" role="progressbar" aria-label="Uso do orçamento" aria-valuemin="0" aria-valuemax="100">
+          <span id="smartBudgetBar"></span>
+        </div>
+        <div class="smart-budget-meta"><span id="smartBudgetDays">Dias restantes</span><span id="smartBudgetEstimateNote"></span></div>
+        <p class="smart-budget-status neutral" id="smartBudgetStatus"></p>
+        <p class="smart-budget-exceeded" id="smartBudgetExceeded" aria-live="polite"></p>
+        <p class="muted small smart-budget-calculation" id="smartBudgetCalculation"></p>
+        <details class="smart-budget-breakdown">
+          <summary>Valores usados no cálculo</summary>
+          <div class="smart-budget-breakdown-grid">
+            <span id="smartBudgetStartBalanceLabel">Saldo bancário na abertura</span><strong id="smartBudgetStartBalance">Indisponível</strong>
+            <span>Entradas futuras confiáveis</span><strong id="smartBudgetPlannedIncome">R$ 0,00</strong>
+            <span>Contas previstas</span><strong id="smartBudgetFixedCosts">R$ 0,00</strong>
+            <span>Despesas essenciais estimadas</span><strong id="smartBudgetEssentialCosts">R$ 0,00</strong>
+            <span>Gasolina estimada</span><strong id="smartBudgetGasCosts">R$ 0,00</strong>
+            <span>Reserva de segurança</span><strong id="smartBudgetSafetyReserve">R$ 0,00</strong>
+            <span>Dinheiro guardado (fora do cálculo)</span><strong id="smartBudgetSavingsExcluded">Histórico indisponível · fora do cálculo</strong>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2 id="financialPlanTitle">Planejamento do Próximo Mês</h2>
+        <div class="goal-actions">
+          <button class="eye-toggle" type="button" data-eye="financialPlanValues" aria-label="Ocultar valores do planejamento"></button>
+          <span class="muted small" id="financialPlanMonth">Próximo mês</span>
+        </div>
+      </div>
+      <div class="comparison-card financial-plan-card" aria-live="polite">
+        <p class="financial-plan-intro">Analisamos os lançamentos, as contas e o histórico disponível para estimar um plano flexível.</p>
+        <div class="financial-plan-grid">
+          <div><span>Renda estimada (não garantida)</span><strong class="positive" id="financialPlanIncome">R$ 0,00</strong></div>
+          <div><span>Contas previstas + fixas médias</span><strong id="financialPlanFixed">R$ 0,00</strong></div>
+          <div><span>Gasolina prevista</span><strong id="financialPlanGas">R$ 0,00</strong></div>
+          <div><span>Outras despesas necessárias</span><strong id="financialPlanNecessary">R$ 0,00</strong></div>
+          <div><span>Essenciais reservados (referência de 55%)</span><strong id="financialPlanEssential">R$ 0,00</strong></div>
+          <div><span>Recomendação para guardar</span><strong id="financialPlanSavings">R$ 0,00</strong></div>
+          <div><span>Limite para lazer e compras</span><strong id="financialPlanLeisure">R$ 0,00</strong></div>
+          <div><span>Margem de segurança</span><strong id="financialPlanSafety">R$ 0,00</strong></div>
+          <div><span>Saldo bancário projetado no fim do mês</span><strong id="financialPlanBankEnd">Indisponível</strong></div>
+          <div><span>Crescimento patrimonial estimado</span><strong id="financialPlanPatrimonyGrowth">R$ 0,00</strong></div>
+        </div>
+        <p class="muted small financial-plan-basis" id="financialPlanIncomeBasis"></p>
+        <p class="smart-budget-status neutral financial-plan-status" id="financialPlanStatus"></p>
+        <p class="muted small financial-plan-calculation" id="financialPlanCalculation"></p>
+        <h3 class="financial-plan-subheading" id="financialPlanActualTitle">Resultado do mês selecionado</h3>
+        <div class="financial-plan-actuals" id="financialPlanActuals"></div>
+        <div class="financial-plan-progress" id="financialPlanProgress"></div>
+        <p class="muted small financial-plan-progress-note" id="financialPlanProgressNote"></p>
+        <div class="financial-plan-evolution" id="financialPlanEvolution" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-heading">
+        <h2>Onde você gastou</h2>
+        <span class="muted small">Neste mês</span>
+      </div>
+      <div id="categoryBreakdown" class="category-list">
+        <div class="empty-state">Seus gastos por categoria vão aparecer aqui.</div>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-heading">
+        <h2>Lançamentos e transferências</h2>
+        <span class="muted small" id="transactionCount">0 registros</span>
+      </div>
+      <div id="transactions" class="transactions">
+        <div class="empty-state">Ainda não há lançamentos neste mês.</div>
+      </div>
+    </section>
+
+    <div class="action-bar">
+      <button class="primary-action income-action" id="addIncome"><span>＋</span> Adicionar ganho</button>
+      <button class="primary-action expense-action" id="addExpense"><span>－</span> Adicionar gasto</button>
+    </div>
+
+    <footer>Seus dados ficam salvos neste aparelho. Faça backups regularmente.</footer>
+  </main>
+
+  <dialog id="initialBalanceDialog" class="modal">
+    <form id="initialBalanceForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow">SALDO BANCÁRIO</p><h2>Saldo inicial</h2></div>
+        <button type="button" class="close-button" data-close="initialBalanceDialog" aria-label="Fechar">×</button>
+      </div>
+      <p class="muted">Informe o saldo que deseja usar como ponto de partida. Ele será somado aos ganhos e gastos registrados.</p>
+      <label for="initialBalanceInput">Saldo inicial (R$)</label>
+      <input id="initialBalanceInput" class="amount-input" type="number" step="0.01" inputmode="decimal" required>
+      <label for="balanceReferenceDateInput">Data de referência do saldo</label>
+      <input id="balanceReferenceDateInput" type="date" required>
+      <p class="muted small">O saldo informado vale antes dos lançamentos desta data; lançamentos feitos nessa data também entram no cálculo.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="initialBalanceDialog">Cancelar</button>
+        <button type="submit" class="submit-button">Salvar saldo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="monthlyLimitDialog" class="modal">
+    <form id="monthlyLimitForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow">PLANEJAMENTO</p><h2>Limite mensal de gastos</h2></div>
+        <button type="button" class="close-button" data-close="monthlyLimitDialog" aria-label="Fechar">×</button>
+      </div>
+      <p class="muted">Opcional. Deixe em branco para remover o limite. O aviso considera os gastos do mês atual.</p>
+      <label for="monthlyLimitInput">Limite mensal (R$)</label>
+      <input id="monthlyLimitInput" class="amount-input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Sem limite">
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="monthlyLimitDialog">Cancelar</button>
+        <button type="submit" class="submit-button">Salvar limite</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="smartBudgetDialog" class="modal">
+    <form id="smartBudgetForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow">ORÇAMENTO DO MÊS</p><h2 id="smartBudgetDialogTitle">Ajustar limite</h2></div>
+        <button type="button" class="close-button" data-close="smartBudgetDialog" aria-label="Fechar">×</button>
+      </div>
+      <p class="muted">Limite recomendado para este mês: <strong id="smartBudgetDialogRecommended">R$ 0,00</strong>.</p>
+      <label for="smartBudgetManualInput">Limite manual (R$)</label>
+      <input id="smartBudgetManualInput" class="amount-input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Usar limite recomendado">
+      <label for="smartBudgetSafetyReserveInput">Reserva de segurança para este mês (R$)</label>
+      <input id="smartBudgetSafetyReserveInput" type="number" min="0" step="0.01" inputmode="decimal" value="0">
+      <p class="muted small">O ajuste de limite vale somente para o mês selecionado. Deixe em branco para usar o recomendado. A reserva informada é subtraída antes de aplicar os 10%.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="smartBudgetDialog">Cancelar</button>
+        <button type="submit" class="submit-button">Salvar limite</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="entryDialog" class="modal">
+    <form id="entryForm" method="dialog">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow" id="formEyebrow">NOVO LANÇAMENTO</p>
+          <h2 id="formTitle">Adicionar gasto</h2>
+        </div>
+        <button type="button" class="close-button" data-close="entryDialog" aria-label="Fechar">×</button>
+      </div>
+      <div id="entryTypeField" hidden>
+        <label for="entryType">Tipo</label>
+        <select id="entryType">
+          <option value="income">Ganho</option>
+          <option value="expense">Gasto</option>
+        </select>
+      </div>
+      <label for="entryAmount">Valor (R$)</label>
+      <input id="entryAmount" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required>
+      <label for="entryCategory">Categoria</label>
+      <select id="entryCategory"></select>
+      <div class="category-form-actions">
+        <button type="button" class="secondary-button" id="addCategoryBtn">＋ Adicionar categoria</button>
+        <button type="button" class="category-link-button" id="manageCategoriesBtn">Gerenciar</button>
+      </div>
+      <div id="entryBudgetGroupField" hidden>
+        <label for="entryBudgetGroup">Classificação do gasto</label>
+        <select id="entryBudgetGroup">
+          <option value="fixed">Gasto fixo</option>
+          <option value="necessary">Variável necessário</option>
+          <option value="nonessential">Não essencial</option>
+        </select>
+        <p class="muted small">A classificação inicial é sugerida pela categoria e pode ser alterada. Gastos fixos e necessários não consomem o orçamento não essencial.</p>
+      </div>
+      <label for="entryDate">Data</label>
+      <input id="entryDate" type="date" required>
+      <label for="entryNote">Observação <span class="muted">(opcional)</span></label>
+      <input id="entryNote" type="text" maxlength="70" placeholder="Ex.: almoço, entrega...">
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="entryDialog">Cancelar</button>
+        <button type="submit" class="submit-button">Salvar lançamento</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="categoryManagerDialog" class="modal category-manager-modal">
+    <div class="modal-head">
+      <div><p class="eyebrow">PERSONALIZE SEUS REGISTROS</p><h2>Categorias personalizadas</h2></div>
+      <button type="button" class="close-button" data-close="categoryManagerDialog" aria-label="Fechar">×</button>
+    </div>
+    <p class="muted small">Categorias arquivadas continuam identificando lançamentos antigos e não aparecem em novos registros.</p>
+    <div id="customCategoryList" class="custom-category-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="categoryManagerDialog">Fechar</button>
+      <button type="button" class="submit-button" id="managerAddCategoryBtn">＋ Adicionar categoria</button>
+    </div>
+  </dialog>
+
+  <dialog id="categoryEditorDialog" class="modal category-editor-modal">
+    <form id="categoryForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow" id="categoryFormEyebrow">NOVA CATEGORIA</p><h2 id="categoryFormTitle">Adicionar categoria</h2></div>
+        <button type="button" class="close-button" data-close="categoryEditorDialog" aria-label="Fechar">×</button>
+      </div>
+      <label for="categoryName">Nome</label>
+      <input id="categoryName" type="text" maxlength="40" autocomplete="off" placeholder="Ex.: Manutenção da moto" required>
+      <label for="categoryType">Tipo</label>
+      <select id="categoryType">
+        <option value="expense">Despesa</option>
+        <option value="income">Receita</option>
+      </select>
+      <div id="categoryExpenseGroupField">
+        <label for="categoryExpenseGroup">Classificação financeira</label>
+        <select id="categoryExpenseGroup">
+          <option value="fixed">Fixa</option>
+          <option value="necessary">Essencial variável</option>
+          <option value="nonessential">Não essencial</option>
+        </select>
+      </div>
+      <p class="muted small" id="categoryTypeNote">Receitas são identificadas separadamente e não recebem classificação de despesa.</p>
+      <label for="categoryIconSearch">Pesquisar ícone</label>
+      <input id="categoryIconSearch" type="search" autocomplete="off" placeholder="Assunto ou nome do ícone">
+      <div class="selected-category-icon"><span id="categoryIconPreview" aria-hidden="true">📌</span><span id="categoryIconName">Ícone selecionado</span></div>
+      <div id="categoryIconLibrary" class="category-icon-library" aria-label="Biblioteca de ícones"></div>
+      <p class="muted small" id="categoryFormNote">A classificação da categoria será sugerida em novos lançamentos. Registros existentes preservam seus dados e classificações.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="categoryEditorDialog">Cancelar</button>
+        <button type="submit" class="submit-button" id="categorySubmitBtn">Salvar categoria</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="categoryDeleteDialog" class="modal">
+    <div class="modal-head"><h2>Excluir categoria?</h2><button type="button" class="close-button" data-close="categoryDeleteDialog" aria-label="Fechar">×</button></div>
+    <p class="muted" id="categoryDeleteMessage"></p>
+    <div id="categoryDeleteChoices" class="category-delete-choices" hidden>
+      <label class="category-delete-option"><input type="radio" name="categoryDeleteMode" value="archive" checked> Manter a categoria antiga no histórico</label>
+      <label class="category-delete-option"><input type="radio" name="categoryDeleteMode" value="reclassify"> Reclassificar os registros para</label>
+      <select id="categoryReplacement"></select>
+      <p class="muted small">Reclassificar altera apenas o nome da categoria e a classificação dos lançamentos escolhidos; valores e datas permanecem iguais.</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="categoryDeleteDialog">Cancelar</button>
+      <button type="button" class="delete-button" id="confirmCategoryDelete">Excluir categoria</button>
+    </div>
+  </dialog>
+
+  <dialog id="savingsDialog" class="modal">
+    <form id="savingsForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow">SEU PATRIMÔNIO</p><h2>Dinheiro guardado</h2></div>
+        <button type="button" class="close-button" data-close="savingsDialog">×</button>
+      </div>
+      <p class="muted">Informe o total guardado após adicionar ou retirar dinheiro. O valor passa a valer na data escolhida e permanece no patrimônio até outro registro.</p>
+      <label for="savingsInput">Dinheiro guardado após movimentação (R$)</label>
+      <input id="savingsInput" class="amount-input" type="number" min="0" step="0.01" inputmode="decimal" required>
+      <label for="savingsDateInput">Data a partir da qual esse valor vale</label>
+      <input id="savingsDateInput" type="date" required>
+      <p class="muted small">Para um fechamento histórico, informe a data real do valor. Registros anteriores a qualquer histórico salvo serão indicados como indisponíveis.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="savingsDialog">Cancelar</button>
+        <button type="submit" class="submit-button">Salvar valor</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="transferDialog" class="modal">
+    <form id="transferForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow" id="transferEyebrow">TRANSFERÊNCIA</p><h2 id="transferTitle">Guardar dinheiro</h2></div>
+        <button type="button" class="close-button" data-close="transferDialog" aria-label="Fechar">×</button>
+      </div>
+      <label for="transferDirection">Tipo</label>
+      <select id="transferDirection" required>
+        <option value="save">Guardar dinheiro (banco → guardado)</option>
+        <option value="withdraw">Resgatar dinheiro (guardado → banco)</option>
+      </select>
+      <label for="transferAmount">Valor (R$)</label>
+      <input id="transferAmount" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required>
+      <label for="transferDate">Data</label>
+      <input id="transferDate" type="date" required>
+      <label for="transferDescription">Descrição <span class="muted">(opcional)</span></label>
+      <input id="transferDescription" type="text" maxlength="70" placeholder="Ex.: reserva de emergência">
+      <p class="muted small">O saldo disponível será conferido na data informada. Para transferências antigas, os históricos bancário e do dinheiro guardado precisam cobrir essa data.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="transferDialog">Cancelar</button>
+        <button type="submit" class="submit-button" id="transferSubmit">Salvar transferência</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="billDialog" class="modal">
+    <form id="billForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow" id="billFormEyebrow">NOVA CONTA</p><h2 id="billFormTitle">Adicionar conta</h2></div>
+        <button type="button" class="close-button" data-close="billDialog" aria-label="Fechar">×</button>
+      </div>
+      <div id="billTypeField">
+        <label for="billType">Modalidade</label>
+        <select id="billType" required>
+          <option value="single">Não recorrente</option>
+          <option value="fixed">Fixa mensal</option>
+          <option value="installment">Parcelada</option>
+        </select>
+      </div>
+      <label for="billName">Nome da conta</label>
+      <input id="billName" type="text" maxlength="70" placeholder="Ex.: conta de luz" required>
+      <label for="billAmount" id="billAmountLabel">Valor (R$)</label>
+      <input id="billAmount" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required>
+      <div id="billDueDateField">
+        <label for="billDueDate" id="billDueDateLabel">Data de vencimento</label>
+        <input id="billDueDate" type="date" required>
+      </div>
+      <div id="billDueDayField" hidden>
+        <label for="billDueDay">Dia do vencimento</label>
+        <input id="billDueDay" type="number" min="1" max="31" inputmode="numeric">
+        <p class="muted small">A próxima ocorrência começa neste mês se o dia ainda não passou; caso contrário, no próximo mês.</p>
+      </div>
+      <div id="billInstallmentFields" hidden>
+        <label for="billInstallmentCount">Quantidade de parcelas</label>
+        <input id="billInstallmentCount" type="number" min="1" max="120" step="1" inputmode="numeric">
+        <label for="billFrequency">Frequência</label>
+        <select id="billFrequency">
+          <option value="monthly">Mensal</option>
+          <option value="biweekly">Quinzenal</option>
+          <option value="weekly">Semanal</option>
+        </select>
+      </div>
+      <div id="billEditScopeField" hidden>
+        <label for="billEditScope">Aplicar alterações</label>
+        <select id="billEditScope">
+          <option value="occurrence">Somente esta ocorrência</option>
+          <option value="future">Esta e futuras ocorrências</option>
+        </select>
+      </div>
+      <label for="billCategory">Categoria</label>
+      <select id="billCategory" required></select>
+      <label for="billDescription">Descrição <span class="muted">(opcional)</span></label>
+      <input id="billDescription" type="text" maxlength="100" placeholder="Detalhes da conta">
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="billDialog">Cancelar</button>
+        <button type="submit" class="submit-button" id="billSubmit">Salvar conta</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="billPaymentDialog" class="modal">
+    <div class="modal-head"><h2>Registrar pagamento?</h2><button type="button" class="close-button" data-close="billPaymentDialog" aria-label="Fechar">×</button></div>
+    <p class="muted" id="billPaymentMessage"></p>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="billPaymentDialog">Cancelar</button>
+      <button type="button" class="submit-button" id="confirmBillPayment">Marcar como paga</button>
+    </div>
+  </dialog>
+
+  <dialog id="billDeleteDialog" class="modal">
+    <div class="modal-head"><h2>Excluir conta?</h2><button type="button" class="close-button" data-close="billDeleteDialog" aria-label="Fechar">×</button></div>
+    <p class="muted">A conta será removida. Se já foi paga, a despesa vinculada também será removida, quando houver.</p>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="billDeleteDialog">Cancelar</button>
+      <button type="button" class="delete-button" id="confirmBillDelete">Excluir conta</button>
+    </div>
+  </dialog>
+
+  <dialog id="billCancelDialog" class="modal">
+    <div class="modal-head"><h2>Cancelar conta fixa?</h2><button type="button" class="close-button" data-close="billCancelDialog" aria-label="Fechar">×</button></div>
+    <p class="muted">As ocorrências futuras pendentes serão canceladas. Contas já pagas e o histórico financeiro serão mantidos.</p>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="billCancelDialog">Manter recorrência</button>
+      <button type="button" class="delete-button" id="confirmBillCancel">Cancelar recorrência</button>
+    </div>
+  </dialog>
+
+  <dialog id="goalDialog" class="modal">
+    <form id="goalForm" method="dialog">
+      <div class="modal-head">
+        <div><p class="eyebrow">PLANEJAMENTO</p><h2 id="goalFormTitle">Adicionar meta</h2></div>
+        <button type="button" class="close-button" data-close="goalDialog" aria-label="Fechar">×</button>
+      </div>
+      <label for="goalName">Nome da meta</label>
+      <input id="goalName" type="text" maxlength="70" placeholder="Ex.: viagem, computador..." required>
+      <label for="goalTarget">Valor desejado (R$)</label>
+      <input id="goalTarget" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" required>
+      <p class="muted small">O progresso acompanha automaticamente o patrimônio do mês selecionado, somando saldo bancário e dinheiro guardado.</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" data-close="goalDialog">Cancelar</button>
+        <button type="submit" class="submit-button" id="goalSubmit">Salvar meta</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goalDeleteDialog" class="modal">
+    <div class="modal-head"><h2>Excluir meta?</h2><button type="button" class="close-button" data-close="goalDeleteDialog" aria-label="Fechar">×</button></div>
+    <p class="muted">A meta será removida. Os lançamentos e saldos financeiros não serão alterados.</p>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-close="goalDeleteDialog">Cancelar</button>
+      <button type="button" class="delete-button" id="confirmGoalDelete">Excluir meta</button>
+    </div>
+  </dialog>
+
+  <dialog id="backupDialog" class="modal">
+    <div class="modal-head">
+      <div><p class="eyebrow">SEUS DADOS</p><h2>Backup e restauração</h2></div>
+      <button type="button" class="close-button" data-close="backupDialog">×</button>
+    </div>
+    <p class="muted">Exporte uma cópia dos seus lançamentos para guardar ou transferir para outro aparelho. Restaurar substitui os dados atuais.</p>
+    <div class="backup-actions">
+      <button class="submit-button" id="exportBtn">Baixar backup</button>
+      <label class="upload-button">Restaurar backup<input id="importFile" type="file" accept="application/json"></label>
+    </div>
+    <p class="small muted" id="backupMessage"></p>
+  </dialog>
+
+  <dialog id="confirmDialog" class="modal">
+    <div class="modal-head"><h2>Excluir registro?</h2><button type="button" class="close-button" data-close="confirmDialog">×</button></div>
+    <p class="muted">Essa ação não pode ser desfeita. Os saldos serão recalculados.</p>
+    <div class="modal-actions">
+      <button class="secondary-button" data-close="confirmDialog">Cancelar</button>
+      <button class="delete-button" id="confirmDelete">Excluir registro</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
