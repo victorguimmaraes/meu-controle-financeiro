@@ -66,6 +66,7 @@ let editBillId = null;
 let pendingBillPaymentId = null;
 let pendingBillDeleteId = null;
 let pendingBillCancelSeriesId = null;
+let pendingBillCancelMonth = null;
 let editGoalId = null;
 let pendingGoalDeleteId = null;
 let editCategoryId = null;
@@ -654,9 +655,9 @@ function calculateFinancialPlan(month){
   const earningDays=incomeByMonth.reduce((sum,item)=>sum+item.days,0);
   const averageEarningDays=historyCount?earningDays/historyCount:0;
   const dailyIncomeAverage=earningDays?totalHistoricalIncome/earningDays:0;
-  const averageIncome=historyCount
+  const averageIncome=historyCount>=3
     ?(earningDays?dailyIncomeAverage*averageEarningDays:totalHistoricalIncome/historyCount)
-    :3000;
+    :0;
   const monthlyTrend=historyCount>1
     ?(incomeByMonth[historyCount-1].income-incomeByMonth[0].income)/(historyCount-1)
     :0;
@@ -717,7 +718,7 @@ function calculateFinancialPlan(month){
     inputs:{
       openingBank:openingBank===null?null:roundMoney(openingBank),
       openingSavings:openingSavings===null?null:roundMoney(openingSavings),
-      incomeEstimate,incomeMethod:historyCount?"history":"reference",
+      incomeEstimate,incomeMethod:historyCount>=3?"history":"reference",
       incomeHistoryMonths:historyMonths,earningDays,dailyIncomeAverage:roundMoney(dailyIncomeAverage),
       averageEarningDays:roundMoney(averageEarningDays),incomeTrend:trend,
       incomeTrendAdjustment:roundMoney(trendAdjustment),historyCount,essentialMonths,
@@ -806,10 +807,10 @@ function renderFinancialPlan(){
     :inputs.incomeTrend==="decreasing"?"tendência recente de queda"
       :inputs.incomeTrend==="stable"?"renda estável nos meses observados":"sem tendência histórica disponível";
   const incomeBasis=hidden
-    ?"Renda estimada com base no histórico ou na referência provisória; valores ocultos."
+    ?"Renda estimada com base no histórico; valores ocultos."
     :inputs.incomeMethod==="history"
     ?`Média de ${inputs.historyCount} ${inputs.historyCount===1?"mês completo disponível":"meses completos disponíveis"}; média diária registrada de ${money(inputs.dailyIncomeAverage)} em ${inputs.earningDays} dias com ganhos (média de ${inputs.averageEarningDays.toLocaleString("pt-BR",{maximumFractionDigits:1})} ${inputs.averageEarningDays===1?"dia":"dias"}/mês); ${trendLabel}.`
-    :"Referência provisória de R$ 3.000,00 (faixa informada: R$ 2.500,00 a R$ 3.500,00), não é renda garantida.";
+    :`Histórico insuficiente: renda estimada em ${money(inputs.incomeEstimate)} até haver três meses completos com dados.`;
   const provisionalNote=inputs.provisional
     ?` Estimativa provisória: ${inputs.historyCount<3?"histórico de renda incompleto; ":""}${inputs.essentialMonths<3?"histórico de despesas essenciais insuficiente; ":""}${inputs.gasMonths<3?"histórico de gasolina insuficiente; ":""}${inputs.openingBank===null?"saldo bancário de abertura indisponível. ":""}`
     :"";
@@ -1202,6 +1203,11 @@ function renderBills(){
   const list=$("billsList"),scrollTop=list.scrollTop;
   ensureBillOccurrences();
   const bills=state.bills.filter(bill=>!bill.cancelled&&monthKey(bill.dueDate)===selectedMonth).slice().sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const monthTotal=roundMoney(bills.reduce((sum,bill)=>sum+(Number(bill.amount)||0),0));
+  const monthPaid=roundMoney(bills.filter(bill=>billStatus(bill)==="paid").reduce((sum,bill)=>sum+(Number(bill.amount)||0),0));
+  const monthRemaining=roundMoney(Math.max(0,monthTotal-monthPaid));
+  const paidPercent=monthTotal>0?Math.min(100,monthPaid/monthTotal*100):0;
+  $("billMonthSummary").innerHTML=`<div class="bill-month-summary-heading"><strong>Estimativa de contas · ${escapeHTML(formatMonth(selectedMonth))}</strong><div class="money-with-eye"><strong>${displayMoney("billsMonthTotal",monthTotal)}</strong>${eyeButton("billsMonthTotal","estimativa de contas do mês")}</div></div><div class="comparison-track bill-month-track" role="progressbar" aria-label="Contas pagas no mês" aria-valuemin="0" aria-valuemax="100" ${state.hiddenValues.billsMonthTotal?"":"aria-valuenow=\""+paidPercent+"\""}><span style="width:${state.hiddenValues.billsMonthTotal?0:paidPercent}%"></span></div><div class="bill-month-meta"><span>Pago: ${displayMoney("billsMonthTotal",monthPaid)}</span><span>Em aberto: ${displayMoney("billsMonthTotal",monthRemaining)}</span></div>`;
   if(!bills.length)list.innerHTML='<div class="empty-state">Nenhuma conta para este mês.</div>';
   else list.innerHTML=bills.map(bill=>{
     const status=billStatus(bill);
@@ -1209,7 +1215,7 @@ function renderBills(){
     const series=state.billSeries.find(item=>String(item.id)===String(bill.seriesId));
     const actions=status==="paid"
       ?`<span class="bill-paid-date">Paga em ${formatISODate(bill.paidAt||bill.dueDate)}</span><button class="bill-edit" data-edit-bill="${escapeHTML(bill.id)}">Editar</button><button class="bill-delete" data-delete-bill="${escapeHTML(bill.id)}" aria-label="Excluir ${escapeHTML(bill.name)}">×</button>`
-      :`<button class="bill-pay" data-pay-bill="${escapeHTML(bill.id)}">Marcar paga</button><button class="bill-edit" data-edit-bill="${escapeHTML(bill.id)}">Editar</button><button class="bill-delete" data-delete-bill="${escapeHTML(bill.id)}" aria-label="Excluir ${escapeHTML(bill.name)}">×</button>${bill.seriesKind==="fixed"&&series&&series.active?`<button class="bill-cancel" data-cancel-series="${escapeHTML(series.id)}">Cancelar fixa</button>`:""}`;
+      :`<button class="bill-pay" data-pay-bill="${escapeHTML(bill.id)}">Marcar paga</button><button class="bill-edit" data-edit-bill="${escapeHTML(bill.id)}">Editar</button><button class="bill-delete" data-delete-bill="${escapeHTML(bill.id)}" aria-label="Excluir ${escapeHTML(bill.name)}">×</button>${bill.seriesKind==="fixed"&&series&&series.active&&selectedMonth>=monthKey(todayISO())?`<button class="bill-cancel" data-cancel-series="${escapeHTML(series.id)}">Cancelar fixa</button>`:""}`;
     const installment=bill.seriesKind==="installment"?`<span>Parcela ${bill.installmentNumber}/${bill.installmentCount}</span>`:"";
     const recurrence=bill.seriesKind==="fixed"?"Fixa mensal":bill.seriesKind==="installment"?bill.frequency==="monthly"?"Parcelada · mensal":bill.frequency==="biweekly"?"Parcelada · quinzenal":"Parcelada · semanal":"";
     return `<article class="bill-row"><div class="bill-main"><div class="bill-title-line"><strong>${escapeHTML(bill.name)}</strong><span class="bill-status ${status}">${statusLabel}</span></div><div class="bill-details"><span>Vence ${formatISODate(bill.dueDate)}</span><span>${escapeHTML(bill.category)}</span>${recurrence?`<span>${recurrence}</span>`:""}${installment}</div>${bill.description?`<p class="bill-description">${escapeHTML(bill.description)}</p>`:""}</div><div class="bill-amount">${displayMoney(`bill:${bill.id}`,Number(bill.amount)||0)}${eyeButton(`bill:${bill.id}`,`valor da conta ${bill.name}`)}</div><div class="bill-actions">${actions}</div></article>`;
@@ -1221,7 +1227,12 @@ function renderBills(){
     pendingBillDeleteId=button.dataset.deleteBill;
     $("billDeleteDialog").showModal();
   }));
-  document.querySelectorAll("[data-cancel-series]").forEach(button=>button.addEventListener("click",()=>{pendingBillCancelSeriesId=button.dataset.cancelSeries;$("billCancelDialog").showModal();}));
+  document.querySelectorAll("[data-cancel-series]").forEach(button=>button.addEventListener("click",()=>{
+    pendingBillCancelSeriesId=button.dataset.cancelSeries;
+    pendingBillCancelMonth=selectedMonth;
+    $("billCancelMessage").textContent=`Escolha se deseja cancelar a ocorrência de ${formatMonth(selectedMonth)} ou essa e as próximas. Meses anteriores e pagamentos já feitos serão preservados.`;
+    $("billCancelDialog").showModal();
+  }));
 }
 function bindEyeButtons(){
   document.querySelectorAll("[data-eye]").forEach(button=>{
@@ -1793,16 +1804,26 @@ $("confirmBillDelete").addEventListener("click",()=>{
   }
   $("billDeleteDialog").close();pendingBillDeleteId=null;
 });
-$("confirmBillCancel").addEventListener("click",()=>{
+function cancelFixedSeries(scope){
   const series=state.billSeries.find(item=>String(item.id)===String(pendingBillCancelSeriesId)&&item.kind==="fixed");
-  if(!series){toast("Esta recorrência não foi encontrada.");}
-  else{
+  const currentMonth=monthKey(todayISO()),startMonth=pendingBillCancelMonth;
+  if(!series||!startMonth){toast("Esta recorrência não foi encontrada.");}
+  else if(startMonth<currentMonth){toast("Recorrências passadas não podem ser alteradas.");}
+  else if(scope==="month"){
+    const occurrence=state.bills.find(bill=>String(bill.seriesId)===String(series.id)&&bill.occurrenceKey===startMonth);
+    if(!occurrence||billStatus(occurrence)==="paid")toast("A conta deste mês não pode ser cancelada.");
+    else{occurrence.cancelled=true;saveState();render();toast(`Conta de ${formatMonth(startMonth)} cancelada; os meses seguintes foram mantidos.`);}
+  }else{
     series.active=false;
-    state.bills=state.bills.filter(bill=>String(bill.seriesId)!==String(series.id)||billStatus(bill)==="paid"||bill.dueDate<todayISO());
-    saveState();render();toast("Recorrência cancelada; pagamentos realizados foram preservados.");
+    state.bills.forEach(bill=>{
+      if(String(bill.seriesId)===String(series.id)&&monthKey(bill.dueDate)>=startMonth&&billStatus(bill)!=="paid")bill.cancelled=true;
+    });
+    saveState();render();toast(`Recorrência cancelada a partir de ${formatMonth(startMonth)}; meses anteriores e pagamentos foram mantidos.`);
   }
-  $("billCancelDialog").close();pendingBillCancelSeriesId=null;
-});
+  $("billCancelDialog").close();pendingBillCancelSeriesId=null;pendingBillCancelMonth=null;
+}
+$("cancelSeriesThisMonth").addEventListener("click",()=>cancelFixedSeries("month"));
+$("cancelSeriesThisAndFuture").addEventListener("click",()=>cancelFixedSeries("future"));
 $("prevMonth").addEventListener("click",()=>changeMonth(-1));
 $("nextMonth").addEventListener("click",()=>changeMonth(1));
 function changeMonth(delta){const [y,m]=selectedMonth.split("-").map(Number);const d=new Date(y,m-1+delta,1);selectedMonth=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;render();}

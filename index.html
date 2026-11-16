@@ -81,6 +81,7 @@
         <h2>Contas a pagar</h2>
         <button class="text-button limit-edit" id="addBill">＋ Adicionar conta</button>
       </div>
+      <div class="bill-month-summary" id="billMonthSummary" aria-live="polite"></div>
       <div class="bills-list" id="billsList" aria-live="polite">
         <div class="empty-state">Nenhuma conta cadastrada.</div>
       </div>
@@ -540,10 +541,11 @@
 
   <dialog id="billCancelDialog" class="modal">
     <div class="modal-head"><h2>Cancelar conta fixa?</h2><button type="button" class="close-button" data-close="billCancelDialog" aria-label="Fechar">×</button></div>
-    <p class="muted">As ocorrências futuras pendentes serão canceladas. Contas já pagas e o histórico financeiro serão mantidos.</p>
-    <div class="modal-actions">
+    <p class="muted" id="billCancelMessage">Escolha se deseja cancelar somente neste mês ou neste mês e nos próximos. Pagamentos anteriores serão mantidos.</p>
+    <div class="modal-actions bill-cancel-actions">
       <button type="button" class="secondary-button" data-close="billCancelDialog">Manter recorrência</button>
-      <button type="button" class="delete-button" id="confirmBillCancel">Cancelar recorrência</button>
+      <button type="button" class="delete-button" id="cancelSeriesThisMonth">Somente neste mês</button>
+      <button type="button" class="delete-button" id="cancelSeriesThisAndFuture">Neste mês e próximos</button>
     </div>
   </dialog>
 
