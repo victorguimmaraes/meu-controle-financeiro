@@ -4,6 +4,11 @@ const expenseCategories = ["Alimentação","Gasolina","Contas","Moradia","Mercad
 const incomeCategories = ["Trabalho","Entregas","Serviços","Venda","Presente","Outros"];
 const expenseGroups = ["fixed","necessary","nonessential"];
 const expenseGroupLabels = {fixed:"Gasto fixo",necessary:"Variável necessário",nonessential:"Não essencial"};
+const budgetGroups = ["essential","free","savings","motorcycle"];
+const budgetGroupLabels = {essential:"Contas essenciais",free:"Gastos livres",savings:"Guardar",motorcycle:"Reserva da moto"};
+const budgetGroupRates = {essential:45,free:20,savings:30,motorcycle:5};
+const walletTypes = ["bank","savings","motorcycle"];
+const walletLabels = {bank:"Conta bancária",savings:"Dinheiro guardado",motorcycle:"Reserva da moto"};
 const icons = {"Alimentação":"🍽️","Gasolina":"⛽","Contas":"🧾","Moradia":"🏠","Mercado":"🛒","Saúde":"💊","Lazer":"🎮","Compras":"🛍️","Transporte":"🚌","Outros":"📌","Trabalho":"💼","Entregas":"🛵","Serviços":"🧰","Venda":"💰","Presente":"🎁"};
 const iconLibrary=[
   {icon:"🍽️",name:"prato refeição restaurante",topic:"Alimentação"},
@@ -89,6 +94,11 @@ function loadState(){
     storageWarning=`Os dados salvos não têm um formato reconhecido. ${recoveryError||"O conteúdo original foi preservado em uma cópia local; restaure um backup válido para continuar."}`;
   }
   if(parsed&&Array.isArray(parsed.entries)){
+    if(!isValidBackupData(parsed)){
+      const recoveryError=preserveInvalidStorage(raw);
+      storageWarning=`Os dados salvos contêm registros inválidos. ${recoveryError||"O conteúdo original foi preservado em uma cópia local; restaure um backup válido para continuar."}`;
+      return normalizeState({entries:[],savings:0,initialBalance:0,monthlyLimit:null});
+    }
     const normalized=normalizeState(parsed);
     const needsMigration=!isValidISODate(parsed.balanceReferenceDate)||typeof parsed.balanceReferenceConfirmed!=="boolean"
       ||!Array.isArray(parsed.savingsHistory)||!Array.isArray(parsed.bills)
@@ -96,9 +106,14 @@ function loadState(){
       ||!Array.isArray(parsed.billSeries)
       ||!Array.isArray(parsed.goals)
       ||!Array.isArray(parsed.customCategories)
+      ||!parsed.categoryBudgetGroups||typeof parsed.categoryBudgetGroups!=="object"||Array.isArray(parsed.categoryBudgetGroups)
+      ||(Array.isArray(parsed.entries)&&parsed.entries.some(entry=>entry&&entry.type==="expense"&&!budgetGroups.includes(entry.budgetGroup)))
+      ||(Array.isArray(parsed.customCategories)&&parsed.customCategories.some(category=>category&&category.type==="expense"&&!budgetGroups.includes(category.budgetGroup)))
       ||!parsed.smartBudgets||typeof parsed.smartBudgets!=="object"||Array.isArray(parsed.smartBudgets)
       ||!parsed.financialPlans||typeof parsed.financialPlans!=="object"||Array.isArray(parsed.financialPlans)
       ||(Array.isArray(parsed.entries)&&parsed.entries.some(entry=>entry&&entry.type==="expense"&&!expenseGroups.includes(entry.expenseGroup)))
+      ||(Array.isArray(parsed.entries)&&parsed.entries.some(entry=>entry&&entry.type==="expense"&&!["bank","motorcycle"].includes(entry.accountSource)))
+      ||(Array.isArray(parsed.transfers)&&parsed.transfers.some(item=>item&&(!walletTypes.includes(item.fromWallet)||!walletTypes.includes(item.toWallet))))
       ||(Array.isArray(parsed.goals)&&parsed.goals.some(goal=>!goal||!Array.isArray(goal.versions)||Object.prototype.hasOwnProperty.call(goal,"currentAmount")))
       ||(Array.isArray(parsed.bills)&&parsed.bills.some(bill=>bill&&bill.recurringMonthly&&(!bill.seriesId||!bill.occurrenceKey)))
       ||(Array.isArray(parsed.savingsHistory)&&parsed.savingsHistory.some(item=>!item||!Number.isFinite(Number(item.recordedAt))||!item.includedTransfers||typeof item.includedTransfers!=="object"))
@@ -125,6 +140,44 @@ function isValidISODate(value){
 function isValidMonthKey(value){
   return typeof value==="string"&&/^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
+function isValidBackupData(data){
+  if(!data||typeof data!=="object"||Array.isArray(data)||!Array.isArray(data.entries))return false;
+  const validId=id=>(typeof id==="string"||typeof id==="number")&&String(id).trim()!=="";
+  const validAmount=amount=>Number.isFinite(Number(amount))&&Number(amount)>0;
+  const entryIds=new Set();
+  for(const entry of data.entries){
+    if(!entry||typeof entry!=="object"||Array.isArray(entry)
+      ||!validId(entry.id)||!["income","expense"].includes(entry.type)
+      ||!isValidISODate(entry.date)||!validAmount(entry.amount)
+      ||typeof entry.category!=="string"||!entry.category.trim())return false;
+    const id=String(entry.id);
+    if(entryIds.has(id))return false;
+    entryIds.add(id);
+  }
+  if(data.transfers!==undefined){
+    if(!Array.isArray(data.transfers))return false;
+    const transferIds=new Set();
+    for(const transfer of data.transfers){
+      if(!transfer||typeof transfer!=="object"||Array.isArray(transfer)||!validId(transfer.id)
+        ||!isValidISODate(transfer.date)||!validAmount(transfer.amount))return false;
+      const hasRoute=walletTypes.includes(transfer.fromWallet)&&walletTypes.includes(transfer.toWallet)
+        &&transfer.fromWallet!==transfer.toWallet;
+      if(!hasRoute&&!["save","withdraw"].includes(transfer.direction))return false;
+      const id=String(transfer.id);
+      if(transferIds.has(id))return false;
+      transferIds.add(id);
+    }
+  }
+  if(data.bills!==undefined){
+    if(!Array.isArray(data.bills)||data.bills.some(bill=>!bill||typeof bill!=="object"||Array.isArray(bill)
+      ||!isValidISODate(bill.dueDate)||!validAmount(bill.amount)))return false;
+  }
+  if(data.savingsHistory!==undefined){
+    if(!Array.isArray(data.savingsHistory)||data.savingsHistory.some(item=>!item||typeof item!=="object"
+      ||!isValidISODate(item.date)||!Number.isFinite(Number(item.amount))||Number(item.amount)<0))return false;
+  }
+  return true;
+}
 function categoryNameKey(name){
   return String(name||"").trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase("pt-BR");
 }
@@ -140,7 +193,9 @@ function normalizeCustomCategories(categories){
     const icon=iconLibrary.some(item=>item.icon===category.icon)?category.icon:"📌";
     const expenseGroup=category.type==="expense"&&expenseGroups.includes(category.expenseGroup)
       ?category.expenseGroup:category.type==="expense"?"nonessential":null;
-    normalized.push({id,name,type:category.type,icon,expenseGroup,active:category.active!==false,archived:Boolean(category.archived)});
+    const budgetGroup=category.type==="expense"&&budgetGroups.includes(category.budgetGroup)
+      ?category.budgetGroup:category.type==="expense"?legacyBudgetGroup(expenseGroup):null;
+    normalized.push({id,name,type:category.type,icon,expenseGroup,budgetGroup,active:category.active!==false,archived:Boolean(category.archived)});
     names.add(key);ids.add(id);
   });
   return normalized;
@@ -151,6 +206,20 @@ function defaultExpenseGroup(category,customCategories=state?state.customCategor
   if(["Contas","Moradia"].includes(category))return "fixed";
   if(["Gasolina","Mercado","Saúde","Transporte"].includes(category))return "necessary";
   return "nonessential";
+}
+function legacyBudgetGroup(group){
+  return group==="fixed"||group==="necessary"?"essential":"free";
+}
+function defaultBudgetGroup(category,customCategories=state?state.customCategories:[],categoryGroups=state?state.categoryBudgetGroups:{}){
+  if(categoryGroups&&budgetGroups.includes(categoryGroups[category]))return categoryGroups[category];
+  const custom=customCategories.find(item=>item.type==="expense"&&item.name===category);
+  if(custom&&budgetGroups.includes(custom.budgetGroup))return custom.budgetGroup;
+  return legacyBudgetGroup(custom?custom.expenseGroup:defaultExpenseGroup(category,customCategories));
+}
+function legacyExpenseGroupForBudgetGroup(group){
+  if(group==="essential")return "fixed";
+  if(group==="free")return "nonessential";
+  return "necessary";
 }
 function categoryIcon(name){
   const custom=state&&state.customCategories.find(item=>item.name===name);
@@ -185,11 +254,23 @@ function categoryNameExists(name,excludeId=null){
 }
 function normalizeState(data){
   const customCategories=normalizeCustomCategories(data.customCategories);
+  const categoryBudgetGroups=data.categoryBudgetGroups&&typeof data.categoryBudgetGroups==="object"&&!Array.isArray(data.categoryBudgetGroups)
+    ?Object.fromEntries(Object.entries(data.categoryBudgetGroups).filter(([name,group])=>name&&budgetGroups.includes(group)))
+    :{};
+  [...expenseCategories,...customCategories.filter(category=>category.type==="expense").map(category=>category.name)].forEach(category=>{
+    if(!budgetGroups.includes(categoryBudgetGroups[category]))
+      categoryBudgetGroups[category]=defaultBudgetGroup(category,customCategories,categoryBudgetGroups);
+  });
   const entries=data.entries.map(entry=>{
     if(!entry||typeof entry!=="object")return entry;
     return {...entry,expenseGroup:entry.type==="expense"
       ?expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category,customCategories)
-      :null};
+      :null,budgetGroup:entry.type==="expense"
+        ?budgetGroups.includes(entry.budgetGroup)?entry.budgetGroup
+          :expenseGroups.includes(entry.expenseGroup)?legacyBudgetGroup(entry.expenseGroup)
+            :defaultBudgetGroup(entry.category,customCategories,categoryBudgetGroups)
+        :null,accountSource:entry.type==="expense"&&entry.accountSource==="motorcycle"?"motorcycle":"bank",
+      allowNegativeBalance:entry.type==="expense"&&entry.allowNegativeBalance===true};
   });
   const savings=Number.isFinite(Number(data.savings))&&Number(data.savings)>=0?Number(data.savings):0;
   const earliestEntry=entries.map(entry=>entry&&entry.date).filter(isValidISODate).sort()[0];
@@ -199,9 +280,17 @@ function normalizeState(data){
   if(Array.isArray(data.transfers))data.transfers.forEach(item=>{
     const id=item&&item.id!==undefined?String(item.id):"";
     const amount=Number(item&&item.amount);
-    if(!id||transferIds.has(id)||!["save","withdraw"].includes(item.direction)||!isValidISODate(item.date)||!Number.isFinite(amount)||amount<=0)return;
+    const legacyDirection=item&&["save","withdraw"].includes(item.direction)?item.direction:null;
+    const hasWalletRoute=item&&walletTypes.includes(item.fromWallet)&&walletTypes.includes(item.toWallet)
+      &&item.fromWallet!==item.toWallet;
+    if(!id||transferIds.has(id)||(!hasWalletRoute&&!legacyDirection)||!isValidISODate(item.date)||!Number.isFinite(amount)||amount<=0)return;
+    const fromWallet=hasWalletRoute?item.fromWallet:legacyDirection==="save"?"bank":"savings";
+    const toWallet=hasWalletRoute?item.toWallet:legacyDirection==="save"?"savings":"bank";
     transferIds.add(id);
-    transfers.push({id,direction:item.direction,amount:Math.round(amount*100)/100,date:item.date,description:String(item.description||""),createdAt:Number.isFinite(Number(item.createdAt))?Number(item.createdAt):0});
+    transfers.push({id,direction:legacyDirection,fromWallet,toWallet,
+      legacyRoute:item.legacyRoute===true||!hasWalletRoute,allowNegativeBalance:item.allowNegativeBalance===true,
+      amount:Math.round(amount*100)/100,date:item.date,description:String(item.description||""),
+      createdAt:Number.isFinite(Number(item.createdAt))?Number(item.createdAt):0});
   });
   const savingsHistory=Array.isArray(data.savingsHistory)
     ?data.savingsHistory.filter(item=>item&&isValidISODate(item.date)&&Number.isFinite(Number(item.amount))&&Number(item.amount)>=0).map(item=>({
@@ -377,6 +466,7 @@ function normalizeState(data){
     billSeries,
     goals,
     customCategories,
+    categoryBudgetGroups,
     smartBudgets,
     financialPlans,
     initialBalance:Number.isFinite(Number(data.initialBalance))?Number(data.initialBalance):0,
@@ -410,8 +500,18 @@ function endOfMonth(key){
 }
 function formatISODate(date){return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR");}
 function roundMoney(value){return Math.round((Number(value)||0)*100)/100;}
-function transferBankDelta(transfer){return transfer.direction==="save"?-Number(transfer.amount):Number(transfer.amount);}
-function transferSavingsDelta(transfer){return transfer.direction==="save"?Number(transfer.amount):-Number(transfer.amount);}
+function transferWallets(transfer){
+  if(walletTypes.includes(transfer.fromWallet)&&walletTypes.includes(transfer.toWallet))
+    return {from:transfer.fromWallet,to:transfer.toWallet};
+  return transfer.direction==="save"?{from:"bank",to:"savings"}:{from:"savings",to:"bank"};
+}
+function transferWalletDelta(transfer,wallet){
+  const route=transferWallets(transfer),amount=Number(transfer.amount)||0;
+  return route.to===wallet?amount:route.from===wallet?-amount:0;
+}
+function transferBankDelta(transfer){return transferWalletDelta(transfer,"bank");}
+function transferSavingsDelta(transfer){return transferWalletDelta(transfer,"savings");}
+function transferMotorcycleDelta(transfer){return transferWalletDelta(transfer,"motorcycle");}
 function eventBefore(date,createdAt,targetDate,targetCreatedAt){
   return date<targetDate||(date===targetDate&&(Number(createdAt)||0)<targetCreatedAt);
 }
@@ -427,7 +527,7 @@ function accountBalanceAt(cutoffDate,transferList=state.transfers){
   if(cutoffDate<state.balanceReferenceDate)return null;
   const entriesTotal=state.entries.reduce((sum,entry)=>{
     if(!isValidISODate(entry.date)||entry.date<state.balanceReferenceDate||entry.date>cutoffDate)return sum;
-    return sum+(entry.type==="income"?1:entry.type==="expense"?-1:0)*(Number(entry.amount)||0);
+    return sum+(entry.type==="income"?1:entry.type==="expense"&&entry.accountSource!=="motorcycle"?-1:0)*(Number(entry.amount)||0);
   },0);
   const transferTotal=transferList.filter(transfer=>transfer.date>=state.balanceReferenceDate&&transfer.date<=cutoffDate)
     .reduce((sum,transfer)=>sum+transferBankDelta(transfer),0);
@@ -438,7 +538,7 @@ function accountBalanceBeforeTransfer(date,createdAt,transferList=state.transfer
   let balance=state.initialBalance;
   state.entries.forEach(entry=>{
     if(entry.date>=state.balanceReferenceDate&&eventBefore(entry.date,entry.createdAt,date,createdAt))
-      balance+=(entry.type==="income"?1:entry.type==="expense"?-1:0)*(Number(entry.amount)||0);
+      balance+=(entry.type==="income"?1:entry.type==="expense"&&entry.accountSource!=="motorcycle"?-1:0)*(Number(entry.amount)||0);
   });
   transferList.forEach(transfer=>{
     if(String(transfer.id)!==String(excludeId)&&eventBefore(transfer.date,transfer.createdAt,date,createdAt))
@@ -454,11 +554,55 @@ function savingsAt(date,source=state){
   const includedTotal=Object.values(snapshot.includedTransfers||{}).reduce((sum,amount)=>sum+(Number(amount)||0),0);
   return roundMoney(snapshot.amount+transferTotal-includedTotal);
 }
-function combinePatrimony(bank,saved){
-  return bank===null||saved===null?null:roundMoney(bank+saved);
+function combinePatrimony(bank,saved,motorcycle=0){
+  return bank===null||saved===null||motorcycle===null?null:roundMoney(bank+saved+motorcycle);
 }
 function patrimonyAtDate(date){
-  return combinePatrimony(accountBalanceAt(date),savingsAt(date));
+  return combinePatrimony(accountBalanceAt(date),savingsAt(date),motorcycleBalanceAt(date));
+}
+function motorcycleBalanceAt(date,source=state){
+  const transferTotal=source.transfers.filter(transfer=>transfer.date<=date)
+    .reduce((sum,transfer)=>sum+transferMotorcycleDelta(transfer),0);
+  const maintenanceTotal=source.entries.filter(entry=>entry&&entry.type==="expense"
+    &&entry.accountSource==="motorcycle"&&entry.date<=date)
+    .reduce((sum,entry)=>sum+(Number(entry.amount)||0),0);
+  return roundMoney(transferTotal-maintenanceTotal);
+}
+function motorcycleBalanceBeforeTransfer(date,createdAt,transferList=state.transfers,entryList=state.entries,
+  excludeTransferId=null,excludeEntryId=null){
+  const transferred=transferList.reduce((sum,transfer)=>{
+    if(String(transfer.id)===String(excludeTransferId)||!eventBefore(transfer.date,transfer.createdAt,date,createdAt))return sum;
+    return sum+transferMotorcycleDelta(transfer);
+  },0);
+  const maintenance=entryList.reduce((sum,entry)=>{
+    if(String(entry.id)===String(excludeEntryId)||entry.type!=="expense"||entry.accountSource!=="motorcycle"
+      ||!eventBefore(entry.date,entry.createdAt,date,createdAt))return sum;
+    return sum+(Number(entry.amount)||0);
+  },0);
+  return roundMoney(transferred-maintenance);
+}
+function motorcycleSequenceError(transfers=state.transfers,entries=state.entries){
+  const operations=[
+    ...transfers.filter(transfer=>transfer.fromWallet==="motorcycle"||transfer.toWallet==="motorcycle")
+      .map(transfer=>({
+        date:transfer.date,createdAt:transfer.createdAt,
+        delta:transferMotorcycleDelta(transfer),allowNegative:transfer.allowNegativeBalance===true,
+        label:"transferência"
+      })),
+    ...entries.filter(entry=>entry&&entry.type==="expense"&&entry.accountSource==="motorcycle")
+      .map(entry=>({
+        date:entry.date,createdAt:entry.createdAt,
+        delta:-Number(entry.amount||0),allowNegative:entry.allowNegativeBalance===true,
+        label:"manutenção"
+      }))
+  ].sort((a,b)=>a.date.localeCompare(b.date)||(Number(a.createdAt)||0)-(Number(b.createdAt)||0));
+  let balance=0;
+  for(const operation of operations){
+    balance=roundMoney(balance+operation.delta);
+    if(balance<0&&!operation.allowNegative)
+      return `A ${operation.label} de ${formatISODate(operation.date)} deixaria a reserva da moto negativa (${money(balance)}).`;
+  }
+  return "";
 }
 function savingsBalanceBeforeTransfer(date,createdAt,transferList=state.transfers,excludeId=null,history=state.savingsHistory){
   const snapshots=history.filter(item=>eventBefore(item.date,item.recordedAt,date,createdAt))
@@ -475,16 +619,24 @@ function savingsBalanceBeforeTransfer(date,createdAt,transferList=state.transfer
 function transferSequenceError(transfers,history=state.savingsHistory){
   const ordered=transfers.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.createdAt-b.createdAt);
   for(const transfer of ordered){
-    const bank=accountBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id);
-    const saved=savingsBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id,history);
-    if(bank===null)return `Não é possível validar a transferência de ${formatISODate(transfer.date)}: a data é anterior à referência do saldo bancário.`;
-    if(saved===null)return `Não há histórico do dinheiro guardado até ${formatISODate(transfer.date)} para validar a transferência.`;
-    if(transfer.direction==="save"&&bank<transfer.amount)
-      return `Saldo bancário insuficiente em ${formatISODate(transfer.date)}. Disponível: ${money(bank)}.`;
-    if(transfer.direction==="withdraw"&&saved<transfer.amount)
-      return `Dinheiro guardado insuficiente em ${formatISODate(transfer.date)}. Disponível: ${money(saved)}.`;
+    const {from,to}=transferWallets(transfer);
+    const balance=from==="bank"?accountBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id)
+      :from==="savings"?savingsBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id,history)
+        :motorcycleBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers);
+    if(balance===null){
+      if(from==="bank")return `Não é possível validar a transferência de ${formatISODate(transfer.date)}: a data é anterior à referência do saldo bancário.`;
+      if(from==="savings")return `Não há histórico do dinheiro guardado até ${formatISODate(transfer.date)} para validar a transferência.`;
+    }
+    if(balance<transfer.amount&&!(from==="motorcycle"&&transfer.allowNegativeBalance===true))
+      return `${walletLabels[from]} insuficiente em ${formatISODate(transfer.date)}. Disponível: ${money(balance)}.`;
+    if(!transfer.legacyRoute&&to==="bank"
+      &&accountBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id)===null)
+      return `Não é possível validar a transferência para a conta bancária de ${formatISODate(transfer.date)}: a data é anterior à referência do saldo.`;
+    if(!transfer.legacyRoute&&to==="savings"
+      &&savingsBalanceBeforeTransfer(transfer.date,transfer.createdAt,transfers,transfer.id,history)===null)
+      return `Não há histórico do dinheiro guardado até ${formatISODate(transfer.date)} para validar a transferência.`;
   }
-  return "";
+  return motorcycleSequenceError(transfers);
 }
 function displayMoney(key,value){
   if(state.hiddenValues[key])return "R$ ****";
@@ -520,133 +672,111 @@ function monthlyExpenseTotal(month,predicate){
   return roundMoney(state.entries.filter(entry=>entry&&entry.type==="expense"&&monthKey(entry.date)===month&&predicate(entry))
     .reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
 }
-function calculateSmartBudget(month,safetyReserve=0){
-  const historyMonths=budgetHistoryMonths(month);
-  const historyCount=historyMonths.length;
-  const linkedBillEntries=new Set(state.bills.map(bill=>billPaymentEntry(bill)).filter(Boolean).map(entry=>String(entry.id)));
-  const averageFixed=historyCount
-    ?historyMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>entry.expenseGroup==="fixed"
-      &&!entry.sourceBillId&&!linkedBillEntries.has(String(entry.id))),0)/historyCount
-    :0;
-  const essentialMonths=historyMonths.filter(key=>monthlyExpenseTotal(key,entry=>entry.expenseGroup==="necessary"&&!isGasolineCategory(entry.category))>0);
-  const averageNecessary=historyCount
-    ?historyMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>entry.expenseGroup==="necessary"&&!isGasolineCategory(entry.category)),0)/historyCount
-    :0;
-  const fuelMonths=historyMonths.filter(key=>monthlyExpenseTotal(key,entry=>isGasolineCategory(entry.category)
-    &&(expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category))==="necessary")>0);
-  const gasAverage=fuelMonths.length
-    ?fuelMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>isGasolineCategory(entry.category)
-      &&(expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category))==="necessary"),0)/fuelMonths.length
-    :0;
-  const monthStart=`${month}-01`,monthEnd=endOfMonth(month);
-  const billCommitments=roundMoney(state.bills
-    .filter(bill=>{
-      if(bill.cancelled||bill.dueDate>monthEnd)return false;
-      const payment=billPaymentEntry(bill),paidDate=bill.paidAt||(payment&&payment.date);
-      return !paidDate||paidDate>=monthStart;
-    })
-    .reduce((sum,bill)=>sum+(Number(bill.amount)||0),0));
-  const fixedEstimate=roundMoney(averageFixed+billCommitments);
-  const essentialEstimate=roundMoney(averageNecessary+gasAverage);
-  const configuredSafetyReserve=roundMoney(Math.max(0,Number(safetyReserve)||0));
-  const currentMonth=monthKey(todayISO()),futureMonth=month>currentMonth;
-  const balanceDate=futureMonth?todayISO():endOfMonth(previousMonth(month));
-  const balanceReliable=state.balanceReferenceConfirmed&&balanceDate>=state.balanceReferenceDate;
-  const openingBank=balanceReliable?accountBalanceAt(balanceDate):null;
-  const openingSavings=savingsAt(balanceDate);
-  const reliableRecurringIncome=0;
-  const costHistoryAvailable=essentialMonths.length>0&&fuelMonths.length>0;
-  const freeMoney=openingBank===null||!costHistoryAvailable?null:roundMoney(openingBank+reliableRecurringIncome
-    -fixedEstimate-averageNecessary-gasAverage-configuredSafetyReserve);
-  const recommended=freeMoney===null?0:roundMoney(Math.max(0,freeMoney)*0.1);
-  const provisional=futureMonth||historyCount<3||essentialMonths.length<3||fuelMonths.length<3||openingBank===null;
-  return {
-    recommended,safetyReserve:configuredSafetyReserve,formulaVersion:3,provisional,calculatedAt:todayISO(),
-    basis:{
-      historyCount,essentialMonths:essentialMonths.length,fuelMonths:fuelMonths.length,
-      reliableRecurringIncome,averageFixed:roundMoney(averageFixed),billCommitments,
-      averageNecessary:roundMoney(averageNecessary),gasAverage,fixedEstimate,
-      essentialEstimate,openingBank:openingBank===null?null:roundMoney(openingBank),
-      openingSavings:openingSavings===null?null:roundMoney(openingSavings),
-      safetyReserve:configuredSafetyReserve,freeMoney,provisional,futureMonth
-    }
-  };
+function allocateBudget(income){
+  const cents=Math.max(0,Math.round((Number(income)||0)*100));
+  const shares=budgetGroups.map(group=>({
+    group,cents:Math.floor(cents*budgetGroupRates[group]/100),
+    remainder:cents*budgetGroupRates[group]/100-Math.floor(cents*budgetGroupRates[group]/100)
+  }));
+  let remainder=cents-shares.reduce((sum,item)=>sum+item.cents,0);
+  shares.slice().sort((a,b)=>b.remainder-a.remainder).forEach(item=>{
+    if(remainder>0){item.cents++;remainder--;}
+  });
+  return Object.fromEntries(shares.map(item=>[item.group,item.cents/100]));
+}
+function entryBudgetGroup(entry){
+  return budgetGroups.includes(entry.budgetGroup)?entry.budgetGroup:defaultBudgetGroup(entry.category);
+}
+function monthExpenseBreakdown(month){
+  const currentMonth=monthKey(todayISO()),cutoff=month<currentMonth?endOfMonth(month):todayISO();
+  const used=Object.fromEntries(budgetGroups.map(group=>[group,0]));
+  const committed=Object.fromEntries(budgetGroups.map(group=>[group,0]));
+  state.entries.filter(entry=>entry&&entry.type==="expense"&&monthKey(entry.date)===month).forEach(entry=>{
+    const group=entryBudgetGroup(entry),amount=Number(entry.amount)||0;
+    if(month>currentMonth||entry.date>cutoff)committed[group]+=amount;
+    else used[group]+=amount;
+  });
+  if(month>=currentMonth){
+    state.bills.filter(bill=>!bill.cancelled&&bill.dueDate<=endOfMonth(month)&&billStatus(bill)!=="paid"
+      &&!billPaymentEntry(bill)).forEach(bill=>{
+      committed[defaultBudgetGroup(bill.category)]+=Number(bill.amount)||0;
+    });
+  }
+  budgetGroups.forEach(group=>{
+    used[group]=roundMoney(used[group]);
+    committed[group]=roundMoney(committed[group]);
+  });
+  return {used,committed};
+}
+function incomeReceivedInMonth(month){
+  const cutoff=month<monthKey(todayISO())?endOfMonth(month):todayISO();
+  return roundMoney(state.entries.filter(entry=>entry&&entry.type==="income"
+    &&monthKey(entry.date)===month&&entry.date<=cutoff).reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
+}
+function calculateSmartBudget(month){
+  const currentMonth=monthKey(todayISO());
+  const projected=month>currentMonth?calculateFinancialPlan(month):null;
+  const income=projected?projected.inputs.incomeEstimate:incomeReceivedInMonth(month);
+  const planned=allocateBudget(income),breakdown=monthExpenseBreakdown(month);
+  const actuals=month<=currentMonth?financialPlanActuals(month):null;
+  const used={...breakdown.used};
+  if(month<=currentMonth)used.savings=actuals&&actuals.effectiveSavings!==null
+    ?Math.max(0,actuals.effectiveSavings):null;
+  const available=Object.fromEntries(budgetGroups.map(group=>[
+    group,used[group]===null?null:roundMoney(planned[group]-used[group]-breakdown.committed[group])
+  ]));
+  return {month,income,planned,used,committed:breakdown.committed,available,actuals,projected};
 }
 function ensureSmartBudget(month){
-  const existing=state.smartBudgets[month];
-  const currentMonth=monthKey(todayISO());
-  const projectionReached=existing&&existing.formulaVersion===3&&existing.basis&&existing.basis.futureMonth
-    &&month<=currentMonth;
-  if(existing&&existing.formulaVersion===3&&month<currentMonth&&!projectionReached)return existing;
-  const safetyReserve=existing?existing.safetyReserve:0;
-  const calculated=calculateSmartBudget(month,safetyReserve);
-  if(existing&&existing.formulaVersion===3
-    &&existing.recommended===calculated.recommended
-    &&existing.provisional===calculated.provisional
-    &&JSON.stringify(existing.basis)===JSON.stringify(calculated.basis))return existing;
-  state.smartBudgets[month]={...calculated,manualLimit:existing?existing.manualLimit:null};
-  saveState();
-  return state.smartBudgets[month];
+  return calculateSmartBudget(month);
 }
 function renderSmartBudget(){
-  const budget=ensureSmartBudget(selectedMonth),basis=budget.basis||{};
-  const hidden=Boolean(state.hiddenValues.smartBudgetValues);
-  const spent=monthlyExpenseTotal(selectedMonth,entry=>(expenseGroups.includes(entry.expenseGroup)
-    ?entry.expenseGroup:defaultExpenseGroup(entry.category))==="nonessential");
-  const limit=budget.manualLimit===null?budget.recommended:budget.manualLimit;
-  const freeMoney=basis.freeMoney;
-  const remaining=Math.max(0,roundMoney(limit-spent));
-  const percentage=limit>0?spent/limit*100:spent>0?100:0;
-  const over=spent>limit;
+  const budget=ensureSmartBudget(selectedMonth),hidden=Boolean(state.hiddenValues.smartBudgetValues);
+  const display=value=>hidden?"R$ ****":value===null||value===undefined?"Indisponível":money(value);
+  $("budgetIncomeBasis").textContent=display(budget.income);
+  $("budgetGroupGrid").innerHTML=budgetGroups.map(group=>{
+    const planned=budget.planned[group],used=budget.used[group],committed=budget.committed[group];
+    const available=budget.available[group],progress=planned>0?Math.min(100,Math.max(0,(Number(used)||0)/planned*100)):0;
+    return `<article class="budget-group-card"><div class="budget-group-heading"><h3>${escapeHTML(budgetGroupLabels[group])}</h3><span>${budgetGroupRates[group]}%</span></div><div class="budget-group-values"><div><span>Planejado</span><strong>${display(planned)}</strong></div><div><span>Utilizado</span><strong>${display(used)}</strong></div><div><span>Comprometido</span><strong>${display(committed)}</strong></div><div><span>Disponível</span><strong>${display(available)}</strong></div></div><div class="comparison-track budget-group-track" role="progressbar" aria-label="Uso de ${escapeHTML(budgetGroupLabels[group])}" aria-valuemin="0" aria-valuemax="100" ${hidden?"":`aria-valuenow="${progress}"`} aria-valuetext="${hidden?"Valores ocultos":`${progress.toLocaleString("pt-BR",{maximumFractionDigits:1})}% utilizado`}"><span style="width:${hidden?0:progress}%"></span></div></article>`;
+  }).join("");
+  const close=budget.actuals;
   const currentMonth=monthKey(todayISO());
-  const daysInMonth=new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7)),0).getDate();
-  const daysRemaining=selectedMonth<currentMonth?null:selectedMonth>currentMonth?daysInMonth:daysInMonth-Number(todayISO().slice(8,10))+1;
-  $("smartBudgetRecommended").textContent=hidden?"R$ ****":money(budget.recommended);
-  $("smartBudgetLimit").textContent=hidden?"R$ ****":money(limit);
-  $("smartBudgetFreeMoney").textContent=hidden?"R$ ****":freeMoney===null?"Indisponível":money(freeMoney);
-  $("smartBudgetRate").textContent=hidden?"**%":"10%";
-  $("smartBudgetSpent").textContent=hidden?"R$ ****":money(spent);
-  $("smartBudgetRemaining").textContent=hidden?"R$ ****":money(remaining);
-  $("smartBudgetPercent").textContent=hidden?"***%":`${percentage.toLocaleString("pt-BR",{maximumFractionDigits:1})}%`;
-  $("smartBudgetDays").textContent=daysRemaining===null?"Mês encerrado":`${daysRemaining} ${daysRemaining===1?"dia":"dias"} ${selectedMonth===currentMonth?"restantes":"no mês"}`;
-  $("smartBudgetExceeded").textContent=over?(hidden?"Orçamento ultrapassado":`Excedido em ${money(spent-limit)}.`):"";
-  $("smartBudgetBar").style.width=hidden?"0%":`${Math.min(100,percentage)}%`;
-  $("smartBudgetBar").classList.toggle("over-budget",over);
-  $("smartBudgetBar").removeAttribute("aria-valuenow");
-  if(!hidden)$("smartBudgetBar").setAttribute("aria-valuenow",String(Math.min(100,percentage)));
-  $("smartBudgetBar").setAttribute("aria-valuetext",hidden?"Valores ocultos":`${percentage.toLocaleString("pt-BR",{maximumFractionDigits:1})}% utilizado`);
-  $("smartBudgetStartBalance").textContent=hidden?"R$ ****":basis.openingBank===null?"Indisponível":money(basis.openingBank);
-  $("smartBudgetStartBalanceLabel").textContent=basis.futureMonth?"Saldo bancário de hoje (projeção)":"Saldo bancário na abertura";
-  $("smartBudgetPlannedIncome").textContent=hidden?"R$ ****":money(Number(basis.reliableRecurringIncome)||0);
-  $("smartBudgetFixedCosts").textContent=hidden?"R$ ****":money(Number(basis.fixedEstimate)||0);
-  $("smartBudgetEssentialCosts").textContent=hidden?"R$ ****":money(Number(basis.averageNecessary)||0);
-  $("smartBudgetGasCosts").textContent=hidden?"R$ ****":money(Number(basis.gasAverage)||0);
-  $("smartBudgetSafetyReserve").textContent=hidden?"R$ ****":money(budget.safetyReserve);
-  $("smartBudgetSavingsExcluded").textContent=hidden?"R$ ****":basis.openingSavings===null
-    ?"Histórico indisponível · fora do cálculo":`${money(basis.openingSavings)} · fora do cálculo`;
-  const status=$("smartBudgetStatus");
-  status.className="smart-budget-status";
-  if(over){status.classList.add("warning");status.textContent="Você ultrapassou o limite recomendado deste mês.";}
-  else if(freeMoney===null){status.classList.add("neutral");status.textContent="Limite provisório de R$ 0,00: faltam dados confiáveis de saldo ou despesas essenciais para estimar o dinheiro livre.";}
-  else if(basis.futureMonth){status.classList.add("neutral");status.textContent="Projeção provisória para mês futuro; o saldo atual é apenas uma referência.";}
-  else if(limit===0){status.classList.add("neutral");status.textContent="Nenhum valor livre recomendado; preserve o saldo para os compromissos e reservas.";}
-  else if(percentage>=80){status.classList.add("warning");status.textContent="Atenção: boa parte do orçamento já foi utilizada.";}
-  else{status.classList.add("positive");status.textContent="Orçamento sob controle.";}
-  const historyCount=Number(basis.historyCount)||0,fuelCount=Number(basis.fuelMonths)||0;
-  const balanceNote=basis.openingBank===null
-    ?" Confirme a data do saldo inicial para validar a disponibilidade."
-    :!Number(basis.essentialMonths)?" Cadastre despesas essenciais para estimar esse custo."
-      :!Number(basis.fuelMonths)?" Cadastre gastos de gasolina para estimar esse custo.":"";
-  $("smartBudgetEstimateNote").textContent=budget.provisional
-    ?`Estimativa provisória${basis.futureMonth?" · mês futuro usando o saldo de hoje como referência":""} · ${historyCount} ${historyCount===1?"mês":"meses"} de histórico, ${Number(basis.essentialMonths)||0} ${Number(basis.essentialMonths)===1?"mês":"meses"} com despesas essenciais e ${fuelCount} ${fuelCount===1?"mês":"meses"} com dados de gasolina.${balanceNote}`
-    :`Recomendação baseada em ${historyCount} ${historyCount===1?"mês":"meses"} e ${fuelCount} ${fuelCount===1?"mês":"meses"} com dados de gasolina.`;
-  $("smartBudgetCalculation").textContent="Dinheiro livre = saldo bancário na abertura + entradas recorrentes confiáveis − contas previstas − média de essenciais − média de gasolina − reserva de segurança. Limite = 10% do dinheiro livre positivo. O app ainda não cadastra entradas futuras recorrentes, então não presume ganhos incertos. Dinheiro guardado fica fora do cálculo; somente resgates já refletidos no saldo bancário contam.";
-  $("editSmartBudget").textContent=budget.manualLimit===null?"Ajustar limite":"Limite ajustado";
+  const closeValues=close?[
+    ["Total recebido",close.income],
+    ["Total gasto",close.totalExpense],
+    ["Gasto em contas essenciais",close.essential],
+    ["Gasto em gastos livres",close.free],
+    ["Efetivamente guardado",close.effectiveSavings===null?null:Math.max(0,close.effectiveSavings)],
+    ["Destinado à reserva da moto",budget.planned.motorcycle],
+    ["Transferido para a reserva da moto",close.motorcycleContributions],
+    ["Retirado da reserva da moto",close.motorcycleWithdrawals],
+    ["Manutenções pagas pela reserva",close.motorcycleMaintenance],
+    ["Saldo da reserva da moto no fechamento",close.motorcycleBalance],
+    ["Gasto com a moto",close.motorcycle],
+    ["Patrimônio no início do mês",close.patrimonyStart],
+    ["Patrimônio no fim do mês",close.patrimonyEnd],
+    ["Variação do patrimônio",close.patrimonyGrowth],
+    ["Variação patrimonial (%)",close.patrimonyGrowthRate===null?"Indisponível":`${close.patrimonyGrowthRate.toLocaleString("pt-BR",{maximumFractionDigits:1})}%`]
+  ]:[
+    ["Total recebido",null],["Total gasto",null],["Gasto em contas essenciais",null],["Gasto em gastos livres",null],
+    ["Efetivamente guardado",null],["Destinado à reserva da moto",null],
+    ["Transferido para a reserva da moto",null],["Retirado da reserva da moto",null],
+    ["Manutenções pagas pela reserva",null],["Saldo da reserva da moto no fechamento",null],["Gasto com a moto",null],
+    ["Patrimônio no início do mês",null],["Patrimônio no fim do mês",null],
+    ["Variação do patrimônio",null],["Variação patrimonial (%)",null]
+  ];
+  $("monthlyClosingGrid").innerHTML=closeValues.map(([label,value])=>
+    `<div><span>${escapeHTML(label)}</span><strong>${hidden?"R$ ****":typeof value==="string"?escapeHTML(value):display(value)}</strong></div>`
+  ).join("");
+  $("monthlyClosingNote").textContent=selectedMonth>currentMonth
+    ?"O fechamento estará disponível quando o mês começar."
+    :close&&close.patrimonyGrowth===null
+      ?"A variação patrimonial depende de saldo bancário e histórico do dinheiro guardado confiáveis no início e no fim do período."
+      :"Economia efetiva considera somente o aumento real do dinheiro guardado; a meta orçada não é contabilizada como valor poupado.";
 }
 function calculateFinancialPlan(month){
   const currentMonth=monthKey(todayISO()),historyMonths=budgetHistoryMonths(month);
   const incomeByMonth=historyMonths.map(key=>({
-    month:key,
     income:monthTotals(key).income,
     days:new Set(state.entries.filter(entry=>entry.type==="income"&&monthKey(entry.date)===key).map(entry=>entry.date)).size
   }));
@@ -656,236 +786,283 @@ function calculateFinancialPlan(month){
   const averageEarningDays=historyCount?earningDays/historyCount:0;
   const dailyIncomeAverage=earningDays?totalHistoricalIncome/earningDays:0;
   const averageIncome=historyCount>=3
-    ?(earningDays?dailyIncomeAverage*averageEarningDays:totalHistoricalIncome/historyCount)
+    ?earningDays?dailyIncomeAverage*averageEarningDays:totalHistoricalIncome/historyCount
     :0;
   const monthlyTrend=historyCount>1
-    ?(incomeByMonth[historyCount-1].income-incomeByMonth[0].income)/(historyCount-1)
-    :0;
+    ?(incomeByMonth[historyCount-1].income-incomeByMonth[0].income)/(historyCount-1):0;
   const trendAdjustment=historyCount>1
-    ?Math.max(-averageIncome*.1,Math.min(averageIncome*.1,monthlyTrend*.25))
-    :0;
-  const incomeEstimate=roundMoney(Math.max(0,averageIncome+trendAdjustment));
-  const trend=historyCount<2?"unknown":monthlyTrend>0?"increasing":monthlyTrend<0?"decreasing":"stable";
-  const linkedBillEntries=new Set(state.bills.map(bill=>billPaymentEntry(bill)).filter(Boolean).map(entry=>String(entry.id)));
-  const averageFixed=historyCount
-    ?historyMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>entry.expenseGroup==="fixed"
-      &&!entry.sourceBillId&&!linkedBillEntries.has(String(entry.id))),0)/historyCount
-    :0;
-  const averageNecessary=historyCount
-    ?historyMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>entry.expenseGroup==="necessary"&&!isGasolineCategory(entry.category)),0)/historyCount
-    :0;
-  const essentialMonths=historyMonths.filter(key=>monthlyExpenseTotal(key,entry=>entry.expenseGroup==="fixed"
-    ||entry.expenseGroup==="necessary"&&!isGasolineCategory(entry.category))>0).length;
-  const fuelMonths=historyMonths.filter(key=>monthlyExpenseTotal(key,entry=>isGasolineCategory(entry.category)
-    &&(expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category))==="necessary")>0);
-  const gasAverage=fuelMonths.length
-    ?fuelMonths.reduce((sum,key)=>sum+monthlyExpenseTotal(key,entry=>isGasolineCategory(entry.category)
-      &&(expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category))==="necessary"),0)/fuelMonths.length
-    :0;
-  const monthStart=`${month}-01`,monthEnd=endOfMonth(month);
-  const fixedBills=roundMoney(state.bills.filter(bill=>{
-    if(bill.cancelled||bill.dueDate>monthEnd)return false;
-    const payment=billPaymentEntry(bill),paidDate=bill.paidAt||(payment&&payment.date);
-    return !paidDate||paidDate>=monthStart;
-  }).reduce((sum,bill)=>sum+(Number(bill.amount)||0),0));
-  const futureOpeningBalance=month>currentMonth;
-  const balanceDate=futureOpeningBalance?todayISO():endOfMonth(previousMonth(month));
-  const balanceReliable=state.balanceReferenceConfirmed&&balanceDate>=state.balanceReferenceDate;
-  const openingBank=balanceReliable?accountBalanceAt(balanceDate):null;
-  const openingSavings=savingsAt(balanceDate);
-  const fixedReserve=roundMoney(averageFixed+fixedBills);
-  const necessaryReserve=roundMoney(averageNecessary);
-  const gasolineReserve=roundMoney(gasAverage);
-  const estimatedEssentialCosts=roundMoney(fixedReserve+necessaryReserve+gasolineReserve);
-  const essentialReserve=roundMoney(Math.max(estimatedEssentialCosts,incomeEstimate*.55));
-  const resources=openingBank===null?0:roundMoney(Math.max(0,openingBank+incomeEstimate));
-  const availableAfterEssentials=Math.max(0,resources-essentialReserve);
-  const safetyReserve=roundMoney(Math.min(incomeEstimate*.1,availableAfterEssentials));
-  const savingsBase=roundMoney(Math.min(incomeEstimate*.25,Math.max(0,availableAfterEssentials-safetyReserve)));
-  const nonessentialLimit=roundMoney(Math.min(incomeEstimate*.1,Math.max(0,availableAfterEssentials-safetyReserve-savingsBase)));
-  const remainingAfterTargets=Math.max(0,roundMoney(availableAfterEssentials-safetyReserve-savingsBase-nonessentialLimit));
-  const additionalSavings=roundMoney(remainingAfterTargets*.5);
-  const savingsRecommended=roundMoney(savingsBase+additionalSavings);
-  const unallocatedRemainder=roundMoney(remainingAfterTargets-additionalSavings);
-  const expectedBankEnd=openingBank===null?null:roundMoney(openingBank+incomeEstimate-essentialReserve-nonessentialLimit-savingsRecommended);
-  const expectedSavingsEnd=openingSavings===null?null:roundMoney(openingSavings+savingsRecommended);
-  const openingPatrimony=combinePatrimony(openingBank,openingSavings);
-  const expectedPatrimonyGrowth=roundMoney(incomeEstimate-essentialReserve-nonessentialLimit);
-  const expectedPatrimonyEnd=openingPatrimony===null?null:roundMoney(openingPatrimony+expectedPatrimonyGrowth);
+    ?Math.max(-averageIncome*.1,Math.min(averageIncome*.1,monthlyTrend*.25)):0;
+  const estimatedIncome=roundMoney(Math.max(0,averageIncome+trendAdjustment));
+  const registeredIncome=roundMoney(state.entries.filter(entry=>entry&&entry.type==="income"
+    &&monthKey(entry.date)===month).reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
+  const incomeEstimate=registeredIncome>0?registeredIncome:estimatedIncome;
+  const openingBank=state.balanceReferenceConfirmed&&todayISO()>=state.balanceReferenceDate
+    ?accountBalanceAt(todayISO()):null;
+  const openingSavings=savingsAt(todayISO());
+  const commitments=monthExpenseBreakdown(month).committed;
+  const planned=allocateBudget(incomeEstimate);
+  const available=Object.fromEntries(budgetGroups.map(group=>[
+    group,roundMoney(planned[group]-commitments[group])
+  ]));
+  const totalCommitments=roundMoney(budgetGroups.reduce((sum,group)=>sum+commitments[group],0));
+  const uncommittedEssential=Math.max(0,roundMoney(planned.essential-commitments.essential));
+  const bankAvailable=openingBank===null?null:roundMoney(openingBank+incomeEstimate-totalCommitments
+    -planned.savings-planned.motorcycle-uncommittedEssential);
+  const freeAvailable=bankAvailable===null?available.free:roundMoney(Math.min(available.free,bankAvailable));
   return {
-    version:1,status:month>currentMonth?"projection":month===currentMonth?"final":"reconstructed",
-    capturedAt:todayISO(),
     inputs:{
-      openingBank:openingBank===null?null:roundMoney(openingBank),
+      incomeEstimate,incomeSource:registeredIncome>0?"registered":"history",
+      historyCount,openingBank:openingBank===null?null:roundMoney(openingBank),
       openingSavings:openingSavings===null?null:roundMoney(openingSavings),
-      incomeEstimate,incomeMethod:historyCount>=3?"history":"reference",
-      incomeHistoryMonths:historyMonths,earningDays,dailyIncomeAverage:roundMoney(dailyIncomeAverage),
-      averageEarningDays:roundMoney(averageEarningDays),incomeTrend:trend,
-      incomeTrendAdjustment:roundMoney(trendAdjustment),historyCount,essentialMonths,
-      gasAverage:roundMoney(gasAverage),gasMonths:fuelMonths.length,
-      averageFixed:roundMoney(averageFixed),fixedBills,
-      averageNecessary:roundMoney(averageNecessary),
-      provisional:historyCount<3||essentialMonths<3||fuelMonths.length<3||openingBank===null,
-      futureOpeningBalance
+      provisional:registeredIncome===0&&historyCount<3
     },
     recommendations:{
-      resources,fixedReserve,necessaryReserve,gasolineReserve,essentialReserve,
-      safetyReserve,savingsRecommended,nonessentialLimit,expectedBankEnd,
-      expectedSavingsEnd,expectedPatrimonyGrowth,expectedPatrimonyEnd,unallocatedRemainder
+      planned,commitments,available:{...available,free:freeAvailable},
+      totalCommitments,bankAvailable,freeAvailable
     }
   };
 }
 function ensureFinancialPlan(month){
-  const existing=state.financialPlans[month],currentMonth=monthKey(todayISO());
-  if(existing&&existing.status!=="projection")return existing;
-  const calculated=calculateFinancialPlan(month);
-  if(existing&&month>currentMonth&&JSON.stringify(existing.inputs)===JSON.stringify(calculated.inputs)
-    &&JSON.stringify(existing.recommendations)===JSON.stringify(calculated.recommendations))return existing;
-  if(existing&&month===currentMonth&&existing.status==="final")return existing;
-  state.financialPlans[month]=calculated;
-  saveState();
-  return calculated;
+  return calculateFinancialPlan(month);
 }
 function financialPlanActuals(month){
   const currentMonth=monthKey(todayISO());
   if(month>currentMonth)return null;
   const endDate=month<currentMonth?endOfMonth(month):todayISO();
-  const entries=state.entries.filter(entry=>monthKey(entry.date)===month);
+  const entries=state.entries.filter(entry=>monthKey(entry.date)===month&&entry.date<=endDate);
   const expenses=entries.filter(entry=>entry.type==="expense");
-  const groupTotal=group=>roundMoney(expenses.filter(entry=>(expenseGroups.includes(entry.expenseGroup)
-    ?entry.expenseGroup:defaultExpenseGroup(entry.category))===group).reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
-  const gasEntries=expenses.filter(entry=>isGasolineCategory(entry.category)
-    &&(expenseGroups.includes(entry.expenseGroup)?entry.expenseGroup:defaultExpenseGroup(entry.category))==="necessary");
-  const gas=roundMoney(gasEntries.reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
-  const monthStart=`${month}-01`;
-  const paidBills=roundMoney(state.bills.filter(bill=>{
-    const payment=billPaymentEntry(bill),paidDate=bill.paidAt||(payment&&payment.date);
-    return !bill.cancelled&&paidDate&&paidDate>=monthStart&&paidDate<=endDate;
-  }).reduce((sum,bill)=>sum+(Number(bill.amount)||0),0));
+  const groupTotals=Object.fromEntries(budgetGroups.map(group=>[group,roundMoney(expenses
+    .filter(entry=>entryBudgetGroup(entry)===group)
+    .reduce((sum,entry)=>sum+(Number(entry.amount)||0),0))]));
   const transfers=state.transfers.filter(item=>monthKey(item.date)===month);
-  const netSaved=roundMoney(transfers.reduce((sum,item)=>sum+(item.direction==="save"?1:-1)*Number(item.amount),0));
+  const motorcycleContributions=roundMoney(transfers.reduce((sum,item)=>
+    sum+Math.max(0,transferMotorcycleDelta(item)),0));
+  const motorcycleWithdrawals=roundMoney(transfers.reduce((sum,item)=>
+    sum+Math.max(0,-transferMotorcycleDelta(item)),0));
+  const motorcycleMaintenance=roundMoney(entries.filter(entry=>entry.type==="expense"&&entry.accountSource==="motorcycle")
+    .reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
   const bankStart=accountBalanceAt(endOfMonth(previousMonth(month)));
   const savingsStart=savingsAt(endOfMonth(previousMonth(month)));
   const bankEnd=accountBalanceAt(endDate);
   const savingsEnd=savingsAt(endDate);
+  const netSavingsTransfers=roundMoney(transfers.reduce((sum,item)=>sum+transferSavingsDelta(item),0));
+  const effectiveSavings=savingsStart!==null&&savingsEnd!==null
+    ?roundMoney(savingsEnd-savingsStart):transfers.length?netSavingsTransfers:null;
+  const patrimonyStart=combinePatrimony(bankStart,savingsStart,motorcycleBalanceAt(endOfMonth(previousMonth(month))));
+  const patrimonyEnd=combinePatrimony(bankEnd,savingsEnd,motorcycleBalanceAt(endDate));
+  const patrimonyGrowth=patrimonyStart===null||patrimonyEnd===null?null:roundMoney(patrimonyEnd-patrimonyStart);
   return {
     income:roundMoney(entries.filter(entry=>entry.type==="income").reduce((sum,entry)=>sum+(Number(entry.amount)||0),0)),
-    fixed:groupTotal("fixed"),necessary:roundMoney(groupTotal("necessary")-gas),gas,
-    nonessential:groupTotal("nonessential"),paidBills,netSaved,bankStart,bankEnd,savingsStart,savingsEnd,
-    patrimonyStart:combinePatrimony(bankStart,savingsStart),
-    patrimonyEnd:combinePatrimony(bankEnd,savingsEnd),
-    patrimonyGrowth:bankStart===null||savingsStart===null||bankEnd===null||savingsEnd===null
-      ?null:roundMoney(combinePatrimony(bankEnd,savingsEnd)-combinePatrimony(bankStart,savingsStart)),
+    totalExpense:roundMoney(expenses.reduce((sum,entry)=>sum+(Number(entry.amount)||0),0)),
+    essential:groupTotals.essential,free:groupTotals.free,savingsExpense:groupTotals.savings,
+    motorcycle:groupTotals.motorcycle,other:groupTotals.savings,effectiveSavings,
+    motorcycleContributions,motorcycleWithdrawals,motorcycleMaintenance,
+    motorcycleBalance: motorcycleBalanceAt(endDate),
+    patrimonyStart,patrimonyEnd,patrimonyGrowth,
+    patrimonyGrowthRate:patrimonyStart===null||patrimonyGrowth===null||patrimonyStart===0
+      ?null:patrimonyGrowth/Math.abs(patrimonyStart)*100,
     partial:month===currentMonth
+  };
+}
+function calculateMotorcycleReserve(month,budget=calculateSmartBudget(month)){
+  const currentMonth=monthKey(todayISO()),cutoff=month<currentMonth?endOfMonth(month):todayISO();
+  const monthTransfers=state.transfers.filter(transfer=>monthKey(transfer.date)===month&&transfer.date<=cutoff);
+  const contributed=roundMoney(monthTransfers.reduce((sum,transfer)=>
+    sum+Math.max(0,transferMotorcycleDelta(transfer)),0));
+  const withdrawn=roundMoney(monthTransfers.reduce((sum,transfer)=>
+    sum+Math.max(0,-transferMotorcycleDelta(transfer)),0));
+  const maintenance=roundMoney(state.entries.filter(entry=>entry&&entry.type==="expense"
+    &&entry.accountSource==="motorcycle"&&monthKey(entry.date)===month&&entry.date<=cutoff)
+    .reduce((sum,entry)=>sum+(Number(entry.amount)||0),0));
+  const balance=motorcycleBalanceAt(cutoff),target=budget.planned.motorcycle;
+  const contributionScore=target>0?Math.max(0,Math.min(100,contributed/target*100)):null;
+  const balanceScore=target>0?Math.max(0,Math.min(100,balance/target*100)):null;
+  return {
+    month,target,contributed,withdrawn,maintenance,balance,
+    remaining:Math.max(0,roundMoney(target-contributed)),
+    score:target>0?roundMoney(contributionScore*.7+balanceScore*.3):null
   };
 }
 function renderFinancialPlan(){
   const currentMonth=monthKey(todayISO());
-  ensureFinancialPlan(currentMonth);
-  const historical=selectedMonth<currentMonth;
-  const targetMonth=historical||selectedMonth>currentMonth?selectedMonth:monthAfter(currentMonth,1);
-  const plan=ensureFinancialPlan(targetMonth),selectedPlan=ensureFinancialPlan(selectedMonth);
-  const result=financialPlanActuals(selectedMonth),hidden=Boolean(state.hiddenValues.financialPlanValues);
-  const inputs=plan.inputs,recommendations=plan.recommendations;
-  const selectedInputs=selectedPlan.inputs,selectedRecommendations=selectedPlan.recommendations;
+  const targetMonth=selectedMonth<currentMonth?selectedMonth:selectedMonth>currentMonth?selectedMonth:monthAfter(currentMonth,1);
+  const plan=ensureFinancialPlan(targetMonth),inputs=plan.inputs,recommendations=plan.recommendations;
+  const hidden=Boolean(state.hiddenValues.financialPlanValues);
   const display=value=>hidden?"R$ ****":value===null||value===undefined?"Indisponível":money(value);
-  const text=(id,value)=>{const element=$(id);if(element)element.textContent=value;};
-  text("financialPlanTitle",selectedMonth===currentMonth
-    ?"Planejamento do Próximo Mês":`Planejamento de ${formatMonth(targetMonth)}`);
-  text("financialPlanMonth",formatMonth(targetMonth));
-  text("financialPlanIncome",display(inputs.incomeEstimate));
-  text("financialPlanFixed",display(recommendations.fixedReserve));
-  text("financialPlanGas",display(recommendations.gasolineReserve));
-  text("financialPlanNecessary",display(recommendations.necessaryReserve));
-  text("financialPlanEssential",display(recommendations.essentialReserve));
-  text("financialPlanSavings",display(recommendations.savingsRecommended));
-  text("financialPlanLeisure",display(recommendations.nonessentialLimit));
-  text("financialPlanSafety",display(recommendations.safetyReserve));
-  text("financialPlanBankEnd",display(recommendations.expectedBankEnd));
-  text("financialPlanPatrimonyGrowth",display(recommendations.expectedPatrimonyGrowth));
-  const trendLabel=inputs.incomeTrend==="increasing"?"tendência recente de alta"
-    :inputs.incomeTrend==="decreasing"?"tendência recente de queda"
-      :inputs.incomeTrend==="stable"?"renda estável nos meses observados":"sem tendência histórica disponível";
-  const incomeBasis=hidden
-    ?"Renda estimada com base no histórico; valores ocultos."
-    :inputs.incomeMethod==="history"
-    ?`Média de ${inputs.historyCount} ${inputs.historyCount===1?"mês completo disponível":"meses completos disponíveis"}; média diária registrada de ${money(inputs.dailyIncomeAverage)} em ${inputs.earningDays} dias com ganhos (média de ${inputs.averageEarningDays.toLocaleString("pt-BR",{maximumFractionDigits:1})} ${inputs.averageEarningDays===1?"dia":"dias"}/mês); ${trendLabel}.`
-    :`Histórico insuficiente: renda estimada em ${money(inputs.incomeEstimate)} até haver três meses completos com dados.`;
-  const provisionalNote=inputs.provisional
-    ?` Estimativa provisória: ${inputs.historyCount<3?"histórico de renda incompleto; ":""}${inputs.essentialMonths<3?"histórico de despesas essenciais insuficiente; ":""}${inputs.gasMonths<3?"histórico de gasolina insuficiente; ":""}${inputs.openingBank===null?"saldo bancário de abertura indisponível. ":""}`
-    :"";
-  text("financialPlanIncomeBasis",incomeBasis+provisionalNote);
-  text("financialPlanStatus",plan.status==="reconstructed"
-    ?"Plano histórico reconstruído com os dados atuais; pode não refletir exatamente o que era conhecido naquela época."
-    :plan.status==="projection"
-      ?"Projeção para mês futuro; a renda estimada não foi somada ao saldo bancário atual."
-      :"Recomendação mensal salva. Ganhos estimados são projeções, não dinheiro já recebido.");
-  text("financialPlanCalculation","Referência: 25% para guardar, 55% para essenciais, até 10% para lazer e 10% para segurança. A reserva essencial usa o maior valor entre a média das despesas observadas e 55% da renda estimada; essenciais acima disso reduzem lazer e economia. As metas só usam saldo bancário e renda projetada; dinheiro guardado não financia gastos.");
-  const actualLabel=result
-    ?`${result.partial?"Acumulado até hoje":"Resultado real"} · ${formatMonth(selectedMonth)}`
-    :`Resultado de ${formatMonth(selectedMonth)} (mês ainda não iniciado)`;
-  text("financialPlanActualTitle",actualLabel);
-  const actualValues=result?[
-    ["Renda recebida",display(result.income)],
-    ["Despesas essenciais",display(result.fixed+result.necessary+result.gas)],
-    ["Gastos não essenciais",display(result.nonessential)],
-    ["Transferência líquida para o saldo guardado",display(result.netSaved)],
-    ["Saldo bancário no fechamento",display(result.bankEnd)],
-    ["Crescimento real do patrimônio",display(result.patrimonyGrowth)]
-  ]:[["Renda recebida","R$ 0,00"],["Despesas essenciais","R$ 0,00"],["Gastos não essenciais","R$ 0,00"],["Transferência líquida para o saldo guardado","R$ 0,00"],["Saldo bancário no fechamento","Indisponível"],["Crescimento real do patrimônio","Indisponível"]];
-  $("financialPlanActuals").innerHTML=actualValues.map(([label,value])=>`<div><span>${escapeHTML(label)}</span><strong>${hidden?"R$ ****":escapeHTML(value)}</strong></div>`).join("");
-  const nextPlan=calculateFinancialPlan(monthAfter(selectedMonth,1));
-  const freeBankMargin=result&&result.bankEnd!==null
-    ?Math.max(0,roundMoney(result.bankEnd-nextPlan.recommendations.fixedReserve
-      -nextPlan.recommendations.necessaryReserve-nextPlan.recommendations.gasolineReserve))
-    :null;
-  const progressItems=[
-    {label:"Meta de economia",target:selectedRecommendations.savingsRecommended,actual:result?result.netSaved:0,format:value=>`${display(value)} / ${display(selectedRecommendations.savingsRecommended)}`},
-    {label:"Gastos não essenciais",target:selectedRecommendations.nonessentialLimit,actual:result?result.nonessential:0,format:value=>`${display(value)} / ${display(selectedRecommendations.nonessentialLimit)}`,overClass:true},
-    {label:"Contas previstas pagas",target:selectedInputs.fixedBills,actual:result?result.paidBills:0,format:value=>`${display(value)} / ${display(selectedInputs.fixedBills)}`},
-    {label:"Margem livre no banco após compromissos estimados",target:selectedRecommendations.safetyReserve,actual:freeBankMargin,format:value=>`${display(value)} / ${display(selectedRecommendations.safetyReserve)}`}
-  ];
-  $("financialPlanProgress").innerHTML=progressItems.map((item,index)=>{
-    const actualValue=item.actual===null?0:item.actual;
-    const value=Math.max(0,actualValue);
-    const percentage=item.target>0?Math.min(100,value/item.target*100):value>0?100:0;
-    const over=item.overClass&&item.actual>item.target;
-    return `<div class="plan-progress-item"><div class="plan-progress-heading"><span>${escapeHTML(item.label)}</span><strong>${hidden?"R$ ****":escapeHTML(item.format(actualValue))}</strong></div><div class="comparison-track plan-progress-track" role="progressbar" aria-label="${escapeHTML(item.label)}" aria-valuemin="0" aria-valuemax="100" ${hidden?"":`aria-valuenow="${percentage}"`} aria-valuetext="${hidden?"Valores ocultos":`${percentage.toLocaleString("pt-BR",{maximumFractionDigits:1})}%` }"><span class="${over?"over-budget":""}" style="width:${hidden?0:percentage}%"></span></div></div>`;
+  $("financialPlanIncome").textContent=display(inputs.incomeEstimate);
+  $("financialPlanMonth").textContent=formatMonth(targetMonth);
+  $("financialPlanIncomeBasis").textContent=inputs.incomeSource==="registered"
+    ?"Receitas previstas registradas para o período."
+    :inputs.provisional?"Histórico insuficiente para estimar a renda; nenhuma receita fictícia foi adicionada."
+      :`Estimativa baseada nos ${inputs.historyCount} meses completos mais recentes.`;
+  $("financialPlanStatus").textContent="A projeção é apenas orientativa: nenhuma transferência ou movimentação será realizada.";
+  $("financialPlanGroupGrid").innerHTML=budgetGroups.map(group=>{
+    const planned=recommendations.planned[group],committed=recommendations.commitments[group];
+    const available=recommendations.available[group];
+    return `<article class="budget-group-card"><div class="budget-group-heading"><h3>${escapeHTML(budgetGroupLabels[group])}</h3><span>${budgetGroupRates[group]}%</span></div><div class="budget-group-values"><div><span>Previsto</span><strong>${display(planned)}</strong></div><div><span>Comprometido</span><strong>${display(committed)}</strong></div><div><span>Disponível</span><strong>${display(available)}</strong></div></div></article>`;
   }).join("");
-  const progressNote=result
-    ?`Dados reais de ${result.partial?"um mês em andamento":"um mês encerrado"}. A margem de segurança é uma estimativa do saldo bancário após compromissos do mês seguinte; não é uma conta separada.`
-    :"Os indicadores de resultado serão preenchidos quando este mês começar.";
-  text("financialPlanProgressNote",hidden?"Valores ocultos.":progressNote);
-  const messages=[];
-  if(result){
-    if(result.income>0){
-      if(hidden)messages.push("Há ganhos registrados neste período; os valores estão ocultos.");
-      else{
-        const savedRate=result.netSaved/result.income*100;
-        messages.push(`Transferência líquida para o saldo guardado: ${savedRate.toLocaleString("pt-BR",{maximumFractionDigits:1})}% da renda registrada.`);
-      }
-    }
-    if(result.nonessential<=selectedRecommendations.nonessentialLimit)
-      messages.push("Os gastos não essenciais estão dentro do limite planejado.");
-    else messages.push(hidden?"Os gastos não essenciais ultrapassaram o limite planejado."
-      :`Os gastos não essenciais ultrapassaram o limite em ${money(result.nonessential-selectedRecommendations.nonessentialLimit)}.`);
-    const previous=financialPlanActuals(previousMonth(selectedMonth));
-    if(previous&&previous.income+previous.fixed+previous.necessary+previous.gas+previous.nonessential>0){
-      const totalExpense=result.fixed+result.necessary+result.gas+result.nonessential;
-      const previousExpense=previous.fixed+previous.necessary+previous.gas+previous.nonessential;
-      if(totalExpense>previousExpense)messages.push(hidden?"As despesas registradas aumentaram em relação ao mês anterior."
-        :`As despesas registradas aumentaram ${money(totalExpense-previousExpense)} em relação ao mês anterior.`);
-      else if(totalExpense<previousExpense)messages.push(hidden?"As despesas registradas diminuíram em relação ao mês anterior."
-        :`As despesas registradas diminuíram ${money(previousExpense-totalExpense)} em relação ao mês anterior.`);
-      if(result.patrimonyGrowth!==null)messages.push(hidden?"O patrimônio teve uma variação apurada neste período."
-        :`Variação real do patrimônio no período: ${money(result.patrimonyGrowth)}.`);
-    }
+  const bankValues=[
+    ["Saldo bancário real",inputs.openingBank],
+    ["Despesas e contas comprometidas",recommendations.totalCommitments],
+    ["Dinheiro já guardado",inputs.openingSavings],
+    ["Reserva atual da moto",motorcycleBalanceAt(todayISO())],
+    ["Disponível no banco após compromissos e reservas",recommendations.bankAvailable],
+    ["Disponível para gastos livres",recommendations.freeAvailable]
+  ];
+  $("financialPlanBankSummary").innerHTML=bankValues.map(([label,value])=>
+    `<div><span>${escapeHTML(label)}</span><strong>${display(value)}</strong></div>`
+  ).join("");
+  $("financialPlanCalculation").textContent="As quatro parcelas totalizam 100% da renda projetada. Conta bancária, dinheiro guardado e reserva da moto são saldos separados; a projeção não movimenta valores.";
+}
+function renderMotorcycleReserve(){
+  const budget=calculateSmartBudget(selectedMonth);
+  const reserve=calculateMotorcycleReserve(selectedMonth,budget);
+  const hidden=Boolean(state.hiddenValues.motorcycleReserveValues);
+  const display=value=>hidden?"R$ ****":money(value);
+  $("motorcycleReserveMonth").textContent=formatMonth(selectedMonth);
+  $("motorcycleReserveBalance").textContent=display(motorcycleBalanceAt(todayISO()));
+  $("motorcycleReserveTarget").textContent=display(reserve.target);
+  $("motorcycleReserveContributed").textContent=display(reserve.contributed);
+  $("motorcycleReserveWithdrawn").textContent=display(reserve.withdrawn);
+  $("motorcycleReserveUsed").textContent=display(reserve.maintenance);
+  $("motorcycleReserveRemaining").textContent=display(reserve.remaining);
+  const operations=[
+    ...state.transfers.filter(transfer=>transfer.fromWallet==="motorcycle"||transfer.toWallet==="motorcycle")
+      .map(transfer=>({
+        date:transfer.date,createdAt:transfer.createdAt,
+        label:`Transferência · ${walletLabels[transfer.fromWallet]} → ${walletLabels[transfer.toWallet]}`,
+        amount:transferMotorcycleDelta(transfer)
+      })),
+    ...state.entries.filter(entry=>entry&&entry.type==="expense"&&entry.accountSource==="motorcycle")
+      .map(entry=>({
+        date:entry.date,createdAt:entry.createdAt,
+        label:`Manutenção · ${entry.category}${entry.note?` · ${entry.note}`:""}`,
+        amount:-Number(entry.amount||0)
+      }))
+  ].sort((a,b)=>a.date.localeCompare(b.date)||(Number(a.createdAt)||0)-(Number(b.createdAt)||0)).reverse();
+  $("motorcycleReserveHistory").innerHTML=operations.length?operations.map(operation=>
+    `<div class="motorcycle-history-row"><span><strong>${escapeHTML(operation.label)}</strong><small>${formatISODate(operation.date)}</small></span><strong class="${operation.amount<0?"expense-value":"positive"}">${hidden?"R$ ****":`${operation.amount>0?"+":"−"} ${money(Math.abs(operation.amount))}`}</strong></div>`
+  ).join(""):'<div class="empty-state">Depósitos, retiradas e manutenções aparecerão aqui.</div>';
+}
+function calculateFinancialHealth(){
+  const month=monthKey(todayISO()),budget=calculateSmartBudget(month),actuals=budget.actuals;
+  const nextPlan=calculateFinancialPlan(monthAfter(month,1));
+  const planned=budget.planned,used=budget.used,committed=budget.committed;
+  const motorcycle=calculateMotorcycleReserve(month,budget);
+  const essentialTotal=(Number(used.essential)||0)+(Number(committed.essential)||0);
+  const freeTotal=(Number(used.free)||0)+(Number(committed.free)||0);
+  const scoreWithinBudget=(limit,total)=>limit>0
+    ?Math.max(0,Math.min(100,100-Math.max(0,total-limit)/limit*60)):null;
+  const criteria=[
+    {label:"Contas essenciais",weight:20,score:budget.income>0?scoreWithinBudget(planned.essential,essentialTotal):null},
+    {label:"Gastos livres",weight:15,score:budget.income>0?scoreWithinBudget(planned.free,freeTotal):null},
+    {label:"Meta de guardar",weight:20,score:planned.savings>0&&actuals&&actuals.effectiveSavings!==null
+      ?Math.max(0,Math.min(100,actuals.effectiveSavings/planned.savings*100)):null},
+    {label:"Reserva da moto",weight:10,score:motorcycle.score},
+    {label:"Patrimônio",weight:15,score:actuals&&actuals.patrimonyGrowth!==null
+      ?actuals.patrimonyGrowth>0?100:actuals.patrimonyGrowth===0?85
+        :Math.max(0,100-Math.abs(actuals.patrimonyGrowth)/Math.max(Math.abs(actuals.patrimonyStart)||0,budget.income,1)*200)
+      :null}
+  ];
+  const projection=nextPlan.inputs,recommendations=nextPlan.recommendations;
+  const forecastIncomeReliable=projection.openingBank!==null
+    &&(projection.incomeSource==="registered"||!projection.provisional);
+  const cashAfterBills=projection.openingBank!==null&&recommendations.totalCommitments>0
+    ?roundMoney(projection.openingBank+(forecastIncomeReliable?projection.incomeEstimate:0)-recommendations.totalCommitments):null;
+  const billCoverageEvaluable=cashAfterBills!==null&&(forecastIncomeReliable||cashAfterBills>=0);
+  const billCoverageScore=!billCoverageEvaluable?null:cashAfterBills>=0?100
+    :Math.max(0,Math.min(100,100*(1+cashAfterBills/recommendations.totalCommitments)));
+  criteria.push({label:"Contas do próximo mês",weight:20,score:billCoverageScore});
+
+  const evaluated=criteria.filter(item=>item.score!==null);
+  const knownWeight=evaluated.reduce((sum,item)=>sum+item.weight,0);
+  const partial=evaluated.length<criteria.length;
+  let score=knownWeight>=50
+    ?Math.round(evaluated.reduce((sum,item)=>sum+item.score*item.weight,0)/knownWeight):null;
+  if(score!==null&&partial)score=Math.min(score,knownWeight<70?74:89);
+
+  const overdueEssential=state.bills.some(bill=>!bill.cancelled&&billStatus(bill)==="overdue"
+    &&defaultBudgetGroup(bill.category)==="essential"&&!billPaymentEntry(bill));
+  if(score!==null&&overdueEssential)score=Math.min(score,59);
+
+  const billDeficitRatio=billCoverageScore!==null&&cashAfterBills<0
+    ?Math.abs(cashAfterBills)/recommendations.totalCommitments:0;
+  if(score!==null&&billDeficitRatio>=.05)
+    score=Math.min(score,billDeficitRatio>=.5?59:billDeficitRatio>=.2?74:89);
+
+  const patrimonyLossRatio=actuals&&actuals.patrimonyGrowth<0&&actuals.patrimonyStart!==null
+    ?Math.abs(actuals.patrimonyGrowth)/Math.max(Math.abs(actuals.patrimonyStart),budget.income,1):0;
+  if(score!==null&&patrimonyLossRatio>=.25)score=Math.min(score,59);
+  else if(score!==null&&patrimonyLossRatio>=.1)score=Math.min(score,74);
+
+  const savingsAchievement=actuals&&actuals.effectiveSavings!==null&&planned.savings>0
+    ?actuals.effectiveSavings/planned.savings:null;
+  if(score!==null&&savingsAchievement!==null&&savingsAchievement<.8)score=Math.min(score,89);
+  if(score!==null&&planned.free>0&&freeTotal>=planned.free*2)score=Math.min(score,89);
+  if(score!==null&&motorcycle.balance<0)score=Math.min(score,59);
+
+  let level="insufficient",rating="Dados insuficientes";
+  let explanation="Ainda não há dados confiáveis em critérios suficientes para gerar uma nota.";
+  if(score!==null){
+    if(score>=90){level="excellent";rating="Excelente";explanation="Boa cobertura das contas e metas avaliadas.";}
+    else if(score>=75){level="very-good";rating="Muito boa";explanation="Sua situação é positiva; acompanhe os pontos que podem melhorar.";}
+    else if(score>=60){level="good";rating="Boa";explanation="Há pontos a ajustar para manter o equilíbrio financeiro.";}
+    else if(score>=40){level="attention";rating="Atenção";explanation="Alguns compromissos ou metas pedem atenção.";}
+    else{level="critical";rating="Crítica";explanation="Há sinais de risco; priorize contas essenciais e compromissos próximos.";}
   }
-  if(recommendations.unallocatedRemainder>0)messages.push(hidden
-    ?"Há uma sobra projetada além das metas; parte foi sugerida como economia adicional."
-    :`Há uma sobra projetada de ${money(recommendations.unallocatedRemainder)} além das metas; metade dela foi sugerida como economia adicional.`);
-  $("financialPlanEvolution").innerHTML=messages.length?messages.map(message=>`<p>${escapeHTML(message)}</p>`).join("")
-    :'<p class="muted small">Ainda não há dados suficientes para avaliar a evolução financeira deste período.</p>';
+
+  const savings=actuals?actuals.effectiveSavings:null;
+  const recommendation=overdueEssential
+    ?"Há contas essenciais vencidas. Priorize a regularização."
+    :billCoverageScore!==null&&billCoverageScore<95
+      ?"Você precisa se preparar melhor para as contas do próximo mês."
+      :motorcycle.balance<0
+        ?"A reserva da moto está negativa. Reponha o valor usado além do saldo disponível."
+      :actuals&&actuals.patrimonyGrowth<0&&patrimonyLossRatio>=.1
+        ?"Seu patrimônio diminuiu de forma relevante; reveja seus gastos e compromissos."
+        :budget.income>0&&essentialTotal>planned.essential*1.05
+          ?"As despesas essenciais ultrapassam o limite planejado. Revise os compromissos."
+          :budget.income>0&&freeTotal>planned.free*1.05
+            ?"Seus gastos livres estão acima do planejado. Procure reduzir as despesas."
+            :planned.savings>0&&savings!==null&&savings<planned.savings*.95
+              ?"Sua economia está abaixo dos 30% planejados."
+              :motorcycle.target>0&&motorcycle.contributed<motorcycle.target*.95
+                ?"As contribuições para a reserva da moto estão abaixo da meta de 5%."
+                :actuals&&actuals.patrimonyGrowth<0
+                  ?"Seu patrimônio diminuiu neste período; acompanhe essa tendência."
+                  :partial
+                    ?"A avaliação é parcial. Registre os dados que faltam para uma análise mais confiável."
+                    :actuals&&actuals.patrimonyGrowth>0
+                      ?"Você está dentro do orçamento e mantendo uma boa evolução patrimonial."
+                      :"Você está dentro dos limites avaliados; continue acompanhando suas metas.";
+  const missing=criteria.filter(item=>item.score===null).map(item=>item.label);
+  return {
+    month,score,level,rating,explanation,recommendation,partial,missing,
+    evaluatedCount:evaluated.length,criteriaCount:criteria.length,
+    partialNote:score===null
+      ?`Dados insuficientes: ${missing.join(", ").toLocaleLowerCase("pt-BR")||"nenhum critério pôde ser avaliado"}.`
+      :partial
+        ?`Avaliação parcial: ${evaluated.length} de ${criteria.length} critérios. Ainda sem dados: ${missing.join(", ").toLocaleLowerCase("pt-BR")}.`
+        :"Todos os seis critérios têm dados registrados."
+  };
+}
+function renderFinancialHealth(){
+  const health=calculateFinancialHealth(),hidden=Boolean(state.hiddenValues.financialHealthValues);
+  const gauge=$("financialHealthGauge"),scoreText=$("financialHealthScore");
+  $("financialHealthMonth").textContent=`Mês atual · ${formatMonth(health.month)}`;
+  gauge.className=`health-score-gauge ${health.level}`;
+  gauge.style.setProperty("--health-progress",hidden||health.score===null?"0%":`${health.score}%`);
+  gauge.setAttribute("aria-label",hidden?"Pontuação de saúde financeira oculta":
+    health.score===null?"Pontuação de saúde financeira indisponível":`Saúde financeira: ${health.score} de 100`);
+  gauge.setAttribute("aria-valuetext",hidden?"Valores ocultos":health.score===null?"Dados insuficientes":`${health.score} de 100`);
+  if(hidden||health.score===null)gauge.removeAttribute("aria-valuenow");
+  else gauge.setAttribute("aria-valuenow",String(health.score));
+  scoreText.textContent=hidden?"•••":health.score===null?"—":String(health.score);
+  $("financialHealthRating").textContent=hidden?"Valores ocultos":health.rating;
+  $("financialHealthRating").className=`health-rating ${health.level}`;
+  $("financialHealthExplanation").textContent=hidden?"A avaliação está oculta.":health.explanation;
+  $("financialHealthRecommendation").textContent=hidden?"Mostre os valores para ver a recomendação.":health.recommendation;
+  $("financialHealthDetail").textContent=hidden?"":health.partialNote;
 }
 function render(){
   const t=monthTotals(selectedMonth), entries=monthEntries().sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);
@@ -899,10 +1076,12 @@ function render(){
   const cutoffDate=historical?endOfMonth(selectedMonth):todayISO();
   const bankBalance=historical&&!state.balanceReferenceConfirmed?null:accountBalanceAt(cutoffDate);
   const savedBalance=savingsAt(cutoffDate);
-  const selectedPatrimony=combinePatrimony(bankBalance,savedBalance);
+  const motorcycleBalance=motorcycleBalanceAt(cutoffDate);
+  const selectedPatrimony=combinePatrimony(bankBalance,savedBalance,motorcycleBalance);
   $("bankBalanceLabel").textContent=historical?`Fechamento da conta (${formatMonth(selectedMonth)})`:"Saldo atual da conta";
   $("currentBalance").textContent=displayMoney("currentBalance",bankBalance);
   $("savedAmount").textContent=displayMoney("savedAmount",savedBalance);
+  $("motorcycleBalance").textContent=displayMoney("motorcycleBalance",motorcycleBalance);
   $("totalAmount").textContent=displayMoney("totalAmount",selectedPatrimony);
   let balanceMessage="";
   if(historical&&!state.balanceReferenceConfirmed)balanceMessage="Fechamento indisponível: confirme a data de referência do saldo inicial para validar o histórico.";
@@ -920,7 +1099,9 @@ function render(){
   renderTransactions(entries,transfers);
   renderBills();
   renderSmartBudget();
+  renderMotorcycleReserve();
   renderFinancialPlan();
+  renderFinancialHealth();
   renderGoals(selectedPatrimony);
   bindEyeButtons();
 }
@@ -1036,12 +1217,17 @@ function renderTransactions(entries,transfers){
   ].sort((a,b)=>b.date.localeCompare(a.date)||(Number(b.createdAt)||0)-(Number(a.createdAt)||0));
   list.innerHTML=records.map(record=>{
     if(record.recordType==="transfer"){
-      const direction=record.direction==="save"?"Guardar dinheiro":"Resgatar dinheiro";
-      const path=record.direction==="save"?"Banco → Guardado":"Guardado → Banco";
+      const {from,to}=transferWallets(record);
+      const direction=to==="motorcycle"?"Adicionar à reserva da moto"
+        :from==="motorcycle"?"Retirar da reserva da moto"
+          :from==="bank"&&to==="savings"?"Guardar dinheiro"
+            :from==="savings"&&to==="bank"?"Resgatar dinheiro":"Transferir entre saldos";
+      const path=`${walletLabels[from]} → ${walletLabels[to]}`;
       return `<div class="transaction transfer-transaction"><div class="transaction-icon">↔</div><div class="transaction-info"><strong>${direction}${record.description?` · ${escapeHTML(record.description)}`:""}</strong><span>${formatISODate(record.date)} · ${path}</span></div><div class="transaction-amount transfer-amount">${state.hiddenValues[`transfer:${record.id}`]?"R$ ****":money(record.amount)}</div><div class="transaction-actions">${eyeButton(`transfer:${record.id}`,`transferência ${direction.toLowerCase()}`)}<button class="transaction-edit" data-edit-transfer="${escapeHTML(record.id)}">Editar</button><button class="transaction-delete" data-delete-transfer="${escapeHTML(record.id)}">Excluir</button></div></div>`;
     }
-    const budgetGroup=record.type==="expense"?expenseGroupLabels[expenseGroups.includes(record.expenseGroup)?record.expenseGroup:defaultExpenseGroup(record.category)]:"";
-    return `<div class="transaction"><div class="transaction-icon">${escapeHTML(categoryIcon(record.category))}</div><div class="transaction-info"><strong>${escapeHTML(record.category)}${record.note?` · ${escapeHTML(record.note)}`:""}</strong><span>${formatISODate(record.date)}${budgetGroup?` · ${escapeHTML(budgetGroup)}`:""}</span></div><div class="transaction-amount ${record.type}">${state.hiddenValues[`entry:${record.id}`]?"R$ ****":`${record.type==="income"?"+":"−"} ${money(record.amount)}`}</div><div class="transaction-actions">${eyeButton(`entry:${record.id}`,`lançamento ${record.category}`)}<button class="transaction-edit" data-edit="${escapeHTML(record.id)}">Editar</button><button class="transaction-delete" data-delete="${escapeHTML(record.id)}">Excluir</button></div></div>`;
+    const budgetGroup=record.type==="expense"?budgetGroupLabels[entryBudgetGroup(record)]:"";
+    const accountSource=record.type==="expense"&&record.accountSource==="motorcycle"?" · Pago da reserva da moto":"";
+    return `<div class="transaction"><div class="transaction-icon">${escapeHTML(categoryIcon(record.category))}</div><div class="transaction-info"><strong>${escapeHTML(record.category)}${record.note?` · ${escapeHTML(record.note)}`:""}</strong><span>${formatISODate(record.date)}${budgetGroup?` · ${escapeHTML(budgetGroup)}`:""}${accountSource}</span></div><div class="transaction-amount ${record.type}">${state.hiddenValues[`entry:${record.id}`]?"R$ ****":`${record.type==="income"?"+":"−"} ${money(record.amount)}`}</div><div class="transaction-actions">${eyeButton(`entry:${record.id}`,`lançamento ${record.category}`)}<button class="transaction-edit" data-edit="${escapeHTML(record.id)}">Editar</button><button class="transaction-delete" data-delete="${escapeHTML(record.id)}">Excluir</button></div></div>`;
   }).join("");
   list.scrollTop=scrollTop;
   sizeTransactionHistory();
@@ -1278,10 +1464,24 @@ function updateSelectedCategoryIcon(){
 }
 function renderCategoryManager(){
   const list=$("customCategoryList"),categories=state.customCategories;
+  const budgetList=$("budgetCategoryClassifications");
+  budgetList.innerHTML=categoriesForType("expense").map(category=>{
+    const group=defaultBudgetGroup(category.name);
+    return `<label class="budget-category-row"><span>${escapeHTML(category.icon)} ${escapeHTML(category.name)}</span><select data-category-budget="${escapeHTML(category.name)}" aria-label="Classificação de ${escapeHTML(category.name)}">${budgetGroups.map(value=>`<option value="${value}"${value===group?" selected":""}>${escapeHTML(budgetGroupLabels[value])}</option>`).join("")}</select></label>`;
+  }).join("");
+  budgetList.querySelectorAll("[data-category-budget]").forEach(select=>select.addEventListener("change",()=>{
+    const name=select.dataset.categoryBudget,group=select.value;
+    if(!budgetGroups.includes(group)){toast("Selecione uma classificação válida.");return;}
+    state.categoryBudgetGroups[name]=group;
+    const custom=state.customCategories.find(item=>item.type==="expense"&&item.name===name);
+    if(custom)custom.budgetGroup=group;
+    saveState();render();renderCategoryManager();
+    toast(`Classificação padrão de “${name}” atualizada.`);
+  }));
   if(!categories.length){list.innerHTML='<div class="empty-state">Nenhuma categoria personalizada ainda.</div>';return;}
   list.innerHTML=categories.map(category=>{
     const status=category.active?"Personalizada":category.archived?"Histórico preservado":"Arquivada";
-    const classification=category.type==="income"?"Receita":expenseGroupLabels[category.expenseGroup];
+    const classification=category.type==="income"?"Receita":budgetGroupLabels[defaultBudgetGroup(category.name)];
     return `<article class="custom-category-row${category.active?"":" custom-category-archived"}"><span class="custom-category-icon" aria-hidden="true">${escapeHTML(category.icon)}</span><div class="custom-category-info"><strong>${escapeHTML(category.name)}</strong><span>${status} · ${category.type==="income"?"Receita":"Despesa · "+escapeHTML(classification)}</span></div><div class="custom-category-actions">${category.active?`<button type="button" data-edit-category="${escapeHTML(category.id)}">Editar</button>`:""}<button type="button" class="category-remove" data-delete-category="${escapeHTML(category.id)}">Excluir</button></div></article>`;
   }).join("");
   list.querySelectorAll("[data-edit-category]").forEach(button=>button.addEventListener("click",()=>openCategoryEditor(button.dataset.editCategory)));
@@ -1314,7 +1514,8 @@ function openCategoryEditor(id=null,type="expense"){
   $("categoryName").value=category?category.name:"";
   $("categoryType").value=category?category.type:type;
   $("categoryType").disabled=Boolean(category&&categoryReferences(category).total);
-  $("categoryExpenseGroup").value=category&&category.type==="expense"?category.expenseGroup:"nonessential";
+  $("categoryExpenseGroup").value=category&&category.type==="expense"
+    ?defaultBudgetGroup(category.name):"free";
   selectedCategoryIcon=category?category.icon:"📌";
   $("categoryIconSearch").value="";
   $("categoryFormNote").textContent=category&&categoryReferences(category).total
@@ -1354,6 +1555,7 @@ function reclassifyCategoryReferences(category,replacement){
     if(entry.type==="expense"){
       const linkedBill=billForEntry(entry);
       entry.expenseGroup=linkedBill&&linkedBill.seriesKind==="fixed"?"fixed":defaultExpenseGroup(replacement.name);
+      entry.budgetGroup=defaultBudgetGroup(replacement.name);
     }
   });
   state.bills.forEach(bill=>{if(bill.category===category.name)bill.category=replacement.name;});
@@ -1365,6 +1567,7 @@ function openEntry(type){
   $("entryType").value=type;$("formTitle").textContent=type==="income"?"Adicionar ganho":"Adicionar gasto";
   $("formEyebrow").textContent=type==="income"?"NOVA ENTRADA":"NOVO GASTO";
   renderEntryCategories(type);
+  $("entryPaymentSource").value="bank";
   $("entryForm").querySelector('[type="submit"]').textContent="Salvar lançamento";
   $("entryDate").value=todayISO();$("entryAmount").value="";$("entryNote").value="";
   $("entryDialog").showModal();setTimeout(()=>$("entryAmount").focus(),100);
@@ -1374,8 +1577,10 @@ function renderEntryCategories(type,selectedCategory,selectedGroup){
   $("entryCategory").innerHTML=categories.map(category=>`<option value="${escapeHTML(category.name)}">${escapeHTML(category.icon)} ${escapeHTML(category.name)}</option>`).join("");
   if(selectedCategory&&categories.some(category=>category.name===selectedCategory))$("entryCategory").value=selectedCategory;
   $("entryBudgetGroupField").hidden=type!=="expense";
+  $("entryPaymentSourceField").hidden=type!=="expense";
+  if(type!=="expense")$("entryPaymentSource").value="bank";
   if(type==="expense"){
-    const group=expenseGroups.includes(selectedGroup)?selectedGroup:defaultExpenseGroup($("entryCategory").value);
+    const group=budgetGroups.includes(selectedGroup)?selectedGroup:defaultBudgetGroup($("entryCategory").value);
     $("entryBudgetGroup").value=group;
   }
 }
@@ -1387,7 +1592,8 @@ function openEditEntry(id){
   $("entryType").value=entry.type;
   $("formTitle").textContent="Editar lançamento";
   $("formEyebrow").textContent="EDITAR LANÇAMENTO";
-  renderEntryCategories(entry.type,entry.category,entry.expenseGroup);
+  renderEntryCategories(entry.type,entry.category,entryBudgetGroup(entry));
+  $("entryPaymentSource").value=entry.accountSource==="motorcycle"?"motorcycle":"bank";
   $("entryDate").value=entry.date;
   $("entryAmount").value=entry.amount;
   $("entryNote").value=entry.note||"";
@@ -1396,15 +1602,19 @@ function openEditEntry(id){
   setTimeout(()=>$("entryAmount").focus(),100);
 }
 function syncTransferDirection(){
-  const direction=$("transferDirection").value;
-  $("transferTitle").textContent=direction==="save"?"Guardar dinheiro":"Resgatar dinheiro";
+  const [from,to]=$("transferDirection").value.split(":");
+  $("transferTitle").textContent=to==="motorcycle"?"Adicionar à reserva da moto"
+    :from==="motorcycle"?"Retirar da reserva da moto"
+      :from==="bank"&&to==="savings"?"Guardar dinheiro"
+        :from==="savings"&&to==="bank"?"Resgatar dinheiro":"Transferir entre saldos";
 }
-function openTransferForm(direction,transferId=null){
+function openTransferForm(fromWallet,toWallet,transferId=null){
   const transfer=transferId===null?null:state.transfers.find(item=>String(item.id)===String(transferId));
   if(transferId!==null&&!transfer){toast("Esta transferência não foi encontrada.");return;}
   editTransferId=transfer?String(transfer.id):null;
   $("transferEyebrow").textContent=transfer?"EDITAR TRANSFERÊNCIA":"NOVA TRANSFERÊNCIA";
-  $("transferDirection").value=transfer?transfer.direction:direction;
+  const route=transfer?transferWallets(transfer):{from:fromWallet,to:toWallet};
+  $("transferDirection").value=`${route.from}:${route.to}`;
   syncTransferDirection();
   $("transferSubmit").textContent=transfer?"Salvar alterações":"Salvar transferência";
   $("transferAmount").value=transfer?transfer.amount:"";
@@ -1413,7 +1623,7 @@ function openTransferForm(direction,transferId=null){
   $("transferDescription").value=transfer?transfer.description||"":"";
   $("transferDialog").showModal();
 }
-function openTransferEdit(id){openTransferForm(null,id);}
+function openTransferEdit(id){openTransferForm(null,null,id);}
 $("addCategoryBtn").addEventListener("click",()=>{
   categoryReturnToEntry=true;
   openCategoryEditor(null,$("entryType").value);
@@ -1439,17 +1649,19 @@ $("categoryForm").addEventListener("submit",event=>{
   }
   const savedCategory={
     id:existing?existing.id:makeId(),name,type,icon:selectedCategoryIcon,
-    expenseGroup:type==="expense"?$("categoryExpenseGroup").value:null,active:true,archived:false
+    expenseGroup:type==="expense"?legacyExpenseGroupForBudgetGroup($("categoryExpenseGroup").value):null,
+    budgetGroup:type==="expense"?$("categoryExpenseGroup").value:null,active:true,archived:false
   };
   if(existing)Object.assign(existing,savedCategory);
   else state.customCategories.push(savedCategory);
+  if(type==="expense")state.categoryBudgetGroups[name]=savedCategory.budgetGroup;
   saveState();
   $("categoryEditorDialog").close();editCategoryId=null;
   render();renderCategoryManager();
   if($("entryDialog").open&&type===$("entryType").value
     &&(categoryReturnToEntry||$("entryCategory").value===oldName)){
-    renderEntryCategories(type,savedCategory.name,savedCategory.expenseGroup);
-    if(type==="expense")$("entryBudgetGroup").value=savedCategory.expenseGroup;
+    renderEntryCategories(type,savedCategory.name,savedCategory.budgetGroup);
+    if(type==="expense")$("entryBudgetGroup").value=savedCategory.budgetGroup;
   }
   refreshOpenCategorySelectors();
   toast(existing?"Categoria atualizada.":"Categoria criada.");
@@ -1479,21 +1691,51 @@ $("confirmCategoryDelete").addEventListener("click",()=>{
 $("entryType").addEventListener("change",()=>renderEntryCategories($("entryType").value));
 $("entryCategory").addEventListener("change",()=>{
   if($("entryType").value==="expense")
-    $("entryBudgetGroup").value=defaultExpenseGroup($("entryCategory").value);
+    $("entryBudgetGroup").value=$("entryPaymentSource").value==="motorcycle"
+      ?"motorcycle":defaultBudgetGroup($("entryCategory").value);
+});
+$("entryPaymentSource").addEventListener("change",()=>{
+  if($("entryType").value==="expense"&&$("entryPaymentSource").value==="motorcycle")
+    $("entryBudgetGroup").value="motorcycle";
 });
 $("addIncome").addEventListener("click",()=>openEntry("income"));
 $("addExpense").addEventListener("click",()=>openEntry("expense"));
+$("addMotorcycleExpense").addEventListener("click",()=>{
+  openEntry("expense");
+  $("entryPaymentSource").value="motorcycle";
+  $("entryBudgetGroup").value="motorcycle";
+});
 $("entryForm").addEventListener("submit",e=>{
   e.preventDefault();const amount=Number($("entryAmount").value);
   if(!Number.isFinite(amount)||amount<=0){toast("Digite um valor válido.");return;}
-  const type=$("entryType").value;
+  const type=$("entryType").value,accountSource=type==="expense"&&$("entryPaymentSource").value==="motorcycle"
+    ?"motorcycle":"bank";
+  const original=editEntryId===null?null:state.entries.find(entry=>String(entry.id)===editEntryId);
+  if(editEntryId!==null&&!original){toast("Este lançamento não foi encontrado.");return;}
   const updatedFields={type,amount:Math.round(amount*100)/100,category:$("entryCategory").value,
-    expenseGroup:type==="expense"?$("entryBudgetGroup").value:null,
-    date:$("entryDate").value,note:$("entryNote").value.trim()};
+    expenseGroup:type==="expense"?defaultExpenseGroup($("entryCategory").value):null,
+    budgetGroup:type==="expense"?$("entryBudgetGroup").value:null,
+    accountSource,allowNegativeBalance:false,date:$("entryDate").value,note:$("entryNote").value.trim()};
+  const id=original?original.id:makeId(),createdAt=original?original.createdAt:nextRecordTime();
+  const updatedEntry={...(original||{}),id,...updatedFields,createdAt};
+  if(accountSource==="motorcycle"){
+    if(!isValidISODate(updatedFields.date)||updatedFields.date>todayISO()){
+      toast("Registre pela reserva somente uma manutenção já realizada.");return;
+    }
+    const available=motorcycleBalanceBeforeTransfer(updatedFields.date,createdAt,state.transfers,state.entries,null,id);
+    if(available<updatedFields.amount){
+      const ending=roundMoney(available-updatedFields.amount);
+      if(!confirm(`A reserva da moto tem ${money(available)}. Esta manutenção deixará o saldo em ${money(ending)}. Deseja confirmar?`))return;
+      updatedEntry.allowNegativeBalance=true;
+    }
+  }
+  const nextEntries=state.entries.filter(entry=>String(entry.id)!==String(id));
+  nextEntries.push(updatedEntry);
+  const motorcycleError=motorcycleSequenceError(state.transfers,nextEntries);
+  if(motorcycleError){toast(`Não foi possível salvar: ${motorcycleError}`);return;}
   if(editEntryId!==null){
     const index=state.entries.findIndex(entry=>String(entry.id)===editEntryId);
-    if(index<0){toast("Este lançamento não foi encontrado.");return;}
-    const original=state.entries[index],linkedBill=billForEntry(original),updatedEntry={...original,...updatedFields};
+    const linkedBill=billForEntry(original);
     if(linkedBill&&type==="expense"){
       updatedEntry.sourceBillId=linkedBill.id;
       updatedEntry.expenseGroup=linkedBill.seriesKind==="fixed"||defaultExpenseGroup(updatedFields.category)==="fixed"
@@ -1508,26 +1750,41 @@ $("entryForm").addEventListener("submit",e=>{
     saveState();$("entryDialog").close();editEntryId=null;render();toast("Lançamento atualizado!");
     return;
   }
-  state.entries.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),...updatedFields,createdAt:Date.now()});
+  state.entries.push(updatedEntry);
   saveState();$("entryDialog").close();render();toast("Lançamento salvo!");
 });
-$("addSavingTransfer").addEventListener("click",()=>openTransferForm("save"));
-$("addWithdrawalTransfer").addEventListener("click",()=>openTransferForm("withdraw"));
+$("addSavingTransfer").addEventListener("click",()=>openTransferForm("bank","savings"));
+$("addWithdrawalTransfer").addEventListener("click",()=>openTransferForm("savings","bank"));
+$("addMotorcycleTransfer").addEventListener("click",()=>openTransferForm("bank","motorcycle"));
+$("withdrawMotorcycleTransfer").addEventListener("click",()=>openTransferForm("motorcycle","bank"));
 $("transferDirection").addEventListener("change",syncTransferDirection);
 $("transferForm").addEventListener("submit",e=>{
   e.preventDefault();
-  const amount=roundMoney(Number($("transferAmount").value)),date=$("transferDate").value,direction=$("transferDirection").value;
-  if(!Number.isFinite(amount)||amount<=0||!isValidISODate(date)||date>todayISO()||!["save","withdraw"].includes(direction)){
+  const amount=roundMoney(Number($("transferAmount").value)),date=$("transferDate").value;
+  const [fromWallet,toWallet]=$("transferDirection").value.split(":");
+  if(!Number.isFinite(amount)||amount<=0||!isValidISODate(date)||date>todayISO()
+    ||!walletTypes.includes(fromWallet)||!walletTypes.includes(toWallet)||fromWallet===toWallet){
     toast("Informe tipo, valor e data válidos para a transferência.");return;
   }
   const previous=editTransferId===null?null:state.transfers.find(item=>String(item.id)===editTransferId);
   if(editTransferId!==null&&!previous){toast("Esta transferência não foi encontrada.");return;}
+  const direction=fromWallet==="bank"&&toWallet==="savings"?"save"
+    :fromWallet==="savings"&&toWallet==="bank"?"withdraw":null;
   const transfer={
-    id:previous?previous.id:makeId(),direction,amount,date,
+    id:previous?previous.id:makeId(),direction,fromWallet,toWallet,legacyRoute:false,allowNegativeBalance:false,amount,date,
     description:$("transferDescription").value.trim(),createdAt:nextRecordTime()
   };
   const nextTransfers=state.transfers.filter(item=>String(item.id)!==String(transfer.id));
   nextTransfers.push(transfer);
+  if(fromWallet==="motorcycle"){
+    const available=motorcycleBalanceBeforeTransfer(date,transfer.createdAt,nextTransfers,state.entries,transfer.id);
+    if(available<amount){
+      const ending=roundMoney(available-amount);
+      if(!confirm(`A reserva da moto tem ${money(available)}. Esta transferência deixará o saldo em ${money(ending)}. Deseja continuar?`))return;
+      transfer.allowNegativeBalance=true;
+      nextTransfers[nextTransfers.length-1]=transfer;
+    }
+  }
   const error=transferSequenceError(nextTransfers);
   if(error){toast(error);return;}
   state.transfers=nextTransfers;
@@ -1593,12 +1850,7 @@ $("monthlyLimitForm").addEventListener("submit",e=>{
   saveState();$("monthlyLimitDialog").close();render();toast(state.monthlyLimit===null?"Limite mensal removido.":"Limite mensal atualizado!");
 });
 $("editSmartBudget").addEventListener("click",()=>{
-  const budget=ensureSmartBudget(selectedMonth);
-  $("smartBudgetDialogTitle").textContent=`Orçamento de ${formatMonth(selectedMonth)}`;
-  $("smartBudgetDialogRecommended").textContent=money(budget.recommended);
-  $("smartBudgetManualInput").value=budget.manualLimit===null?"":budget.manualLimit.toFixed(2);
-  $("smartBudgetSafetyReserveInput").value=budget.safetyReserve.toFixed(2);
-  $("smartBudgetDialog").showModal();
+  openCategoryManager();
 });
 $("smartBudgetForm").addEventListener("submit",event=>{
   event.preventDefault();
@@ -1732,6 +1984,7 @@ $("billForm").addEventListener("submit",e=>{
       paidEntry.amount=amount;
       paidEntry.category=category;
       paidEntry.expenseGroup=current.seriesKind==="fixed"?"fixed":defaultExpenseGroup(category);
+      paidEntry.budgetGroup=defaultBudgetGroup(category);
       paidEntry.note=`${name}${description?` - ${description}`:""}`.slice(0,70);
     }
   }else if(fixed){
@@ -1763,10 +2016,12 @@ function openBillPayment(id){
   pendingBillPaymentId=String(bill.id);
   const amount=state.hiddenValues[`bill:${bill.id}`]?"R$ ****":money(bill.amount);
   $("billPaymentMessage").textContent=`“${bill.name}” (${amount}) será registrada como despesa na data de hoje.`;
+  $("billPaymentSource").value="bank";
   $("billPaymentDialog").showModal();
 }
 $("confirmBillPayment").addEventListener("click",()=>{
   if(pendingBillPaymentId===null){$("billPaymentDialog").close();return;}
+  const accountSource=$("billPaymentSource").value==="motorcycle"?"motorcycle":"bank";
   state=loadState();
   const bill=state.bills.find(item=>String(item.id)===String(pendingBillPaymentId));
   if(!bill){$("billPaymentDialog").close();pendingBillPaymentId=null;toast("Esta conta não foi encontrada.");return;}
@@ -1778,9 +2033,22 @@ $("confirmBillPayment").addEventListener("click",()=>{
   const paymentDate=todayISO(),entry={
     id:makeId(),type:"expense",amount:Number(bill.amount),category:bill.category,
     expenseGroup:bill.seriesKind==="fixed"?"fixed":defaultExpenseGroup(bill.category),
+    budgetGroup:accountSource==="motorcycle"?"motorcycle":defaultBudgetGroup(bill.category),
+    accountSource,allowNegativeBalance:false,
     date:paymentDate,note:`${bill.name}${bill.description?` - ${bill.description}`:""}`.slice(0,70),
-    createdAt:Date.now(),sourceBillId:bill.id
+    createdAt:nextRecordTime(),sourceBillId:bill.id
   };
+  if(accountSource==="motorcycle"){
+    const available=motorcycleBalanceBeforeTransfer(paymentDate,entry.createdAt,state.transfers,state.entries,null,entry.id);
+    if(available<entry.amount){
+      const ending=roundMoney(available-entry.amount);
+      if(!confirm(`A reserva da moto tem ${money(available)}. Este pagamento deixará o saldo em ${money(ending)}. Deseja confirmar?`))return;
+      entry.allowNegativeBalance=true;
+    }
+  }
+  const nextEntries=[...state.entries,entry];
+  const motorcycleError=motorcycleSequenceError(state.transfers,nextEntries);
+  if(motorcycleError){toast(`Não foi possível registrar: ${motorcycleError}`);return;}
   state.entries.push(entry);
   bill.status="paid";bill.paidAt=paymentDate;bill.paymentEntryId=entry.id;
   selectedMonth=monthKey(paymentDate);
@@ -1846,18 +2114,60 @@ $("confirmDelete").addEventListener("click",()=>{
 });
 document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
 $("backupBtn").addEventListener("click",()=>{$("backupMessage").textContent="";$("backupDialog").showModal();});
-$("exportBtn").addEventListener("click",()=>{
-  const blob=new Blob([JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`backup-meu-controle-${todayISO()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$("backupMessage").textContent="Backup baixado com sucesso.";
-});
+function downloadFinancialJson(filename,message,includeAnalysisContext=false){
+  const exportData={
+    ...state,
+    ...(includeAnalysisContext?{analysisContext:{
+      referenceMonth:selectedMonth,
+      currency:"BRL",
+      budgetAllocationPercentages:{...budgetGroupRates}
+    }}:{}),
+    exportedAt:new Date().toISOString()
+  };
+  const blob=new Blob([JSON.stringify(exportData,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$("backupMessage").textContent=message;
+}
+$("exportBtn").addEventListener("click",()=>downloadFinancialJson(`backup-meu-controle-${todayISO()}.json`,"Backup baixado com sucesso."));
+$("analysisExportBtn").addEventListener("click",()=>downloadFinancialJson(
+  `meu-controle-analise-${todayISO()}.json`,
+  "Arquivo de análise baixado. Envie-o ao Google Drive e depois anexe o JSON no ChatGPT. Ele pode ser restaurado pelo Meu Controle.",
+  true
+));
 $("importFile").addEventListener("change",async e=>{
   const file=e.target.files[0];if(!file)return;
-  try{const data=JSON.parse(await file.text());if(!Array.isArray(data.entries))throw new Error("Formato inválido");
+  const previousState=state,previousWarning=storageWarning;
+  let previousStorage,hasStorageSnapshot=false;
+  try{
+    previousStorage=localStorage.getItem(STORAGE_KEY);hasStorageSnapshot=true;
+    const data=JSON.parse(await file.text());
+    if(!isValidBackupData(data))throw new Error("O backup contém registros inválidos.");
     if(!confirm("Isso vai substituir os registros atuais. Deseja continuar?"))return;
     state=normalizeState(data);
+    if(!isValidBackupData(state))throw new Error("O backup não pôde ser normalizado.");
     saveState();storageWarning="";render();$("backupMessage").textContent="Backup restaurado.";toast("Dados restaurados!");
-  }catch(err){$("backupMessage").textContent="Não foi possível ler esse arquivo de backup.";}finally{e.target.value="";}
+  }catch(error){
+    state=previousState;storageWarning=previousWarning;
+    let restored=true,restoreError=null;
+    if(hasStorageSnapshot){
+      try{
+        if(previousStorage===null)localStorage.removeItem(STORAGE_KEY);
+        else localStorage.setItem(STORAGE_KEY,previousStorage);
+      }catch(error){restored=false;restoreError=error;}
+    }
+    if(!restored){
+      storageWarning="Não foi possível confirmar a recuperação dos dados salvos. Faça uma cópia do arquivo original antes de continuar.";
+      console.error("Falha ao restaurar o estado anterior após erro na restauração do backup.",restoreError);
+    }
+    $("backupMessage").textContent=restored
+      ?"Não foi possível restaurar o backup. Os dados atuais foram mantidos."
+      :"Falha na restauração; não foi possível confirmar que os dados atuais foram preservados.";
+  }finally{e.target.value="";}
 });
 let toastTimer;function toast(msg){const el=$("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),2200);}
-if("serviceWorker" in navigator && location.protocol!=="file:"){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}
+if("serviceWorker" in navigator && location.protocol!=="file:"){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(error=>{
+    console.error("Não foi possível registrar o funcionamento offline.",error);
+    toast("Não foi possível ativar o funcionamento offline.");
+  }));
+}
 render();

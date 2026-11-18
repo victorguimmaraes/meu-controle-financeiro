@@ -46,7 +46,13 @@
           <button class="eye-toggle" type="button" data-eye="savedAmount" aria-label="Ocultar dinheiro guardado"></button>
           <button class="balance-edit" id="editSavings" aria-label="Editar dinheiro guardado">Editar</button>
         </div>
-        <p class="total-note">Informe como guardado apenas o valor que não está incluído no saldo da conta.</p>
+        <div class="total-breakdown-row">
+          <span>Reserva de manutenção da moto</span>
+          <strong id="motorcycleBalance">R$ 0,00</strong>
+          <button class="eye-toggle" type="button" data-eye="motorcycleBalance" aria-label="Ocultar reserva da moto"></button>
+          <span></span>
+        </div>
+        <p class="total-note">O patrimônio soma conta, dinheiro guardado e reserva da moto. Transferências entre eles não alteram o total.</p>
         <p class="balance-message" id="balanceMessage" aria-live="polite"></p>
       </div>
     </section>
@@ -67,13 +73,48 @@
     <section class="section-block transfer-section">
       <div class="section-heading">
         <h2>Transferências</h2>
-        <span class="muted small">Entre banco e dinheiro guardado</span>
+        <span class="muted small">Entre os três saldos</span>
       </div>
       <div class="transfer-actions">
         <button class="transfer-action transfer-save" id="addSavingTransfer">↓ Guardar dinheiro</button>
         <button class="transfer-action transfer-withdraw" id="addWithdrawalTransfer">↑ Resgatar dinheiro</button>
       </div>
-      <p class="muted small transfer-note">Transferências não são ganhos nem gastos e não alteram o patrimônio total.</p>
+      <p class="muted small transfer-note">Escolha a origem e o destino. Transferências não são ganhos nem gastos e não alteram o patrimônio total.</p>
+    </section>
+
+    <section class="section-block motorcycle-reserve-section">
+      <div class="section-heading">
+        <div>
+          <h2>Reserva de manutenção da moto</h2>
+          <span class="muted small" id="motorcycleReserveMonth">Mês selecionado</span>
+        </div>
+        <button class="eye-toggle" type="button" data-eye="motorcycleReserveValues" aria-label="Ocultar valores da reserva da moto"></button>
+      </div>
+      <article class="motorcycle-reserve-card">
+        <div class="motorcycle-reserve-balance">
+          <span>Saldo atual acumulado</span>
+          <strong id="motorcycleReserveBalance">R$ 0,00</strong>
+        </div>
+        <p class="muted small motorcycle-reserve-note">A reserva começa vazia; saldos já existentes permanecem na conta ou no dinheiro guardado até uma transferência registrada.</p>
+        <div class="motorcycle-reserve-metrics">
+          <div><span>Meta mensal (5%)</span><strong id="motorcycleReserveTarget">R$ 0,00</strong></div>
+          <div><span>Transferido no mês</span><strong id="motorcycleReserveContributed">R$ 0,00</strong></div>
+          <div><span>Falta para a meta</span><strong id="motorcycleReserveRemaining">R$ 0,00</strong></div>
+          <div><span>Retirado para outros saldos</span><strong id="motorcycleReserveWithdrawn">R$ 0,00</strong></div>
+          <div><span>Usado em manutenções</span><strong id="motorcycleReserveUsed">R$ 0,00</strong></div>
+        </div>
+        <div class="motorcycle-reserve-actions">
+          <button class="transfer-action transfer-save" id="addMotorcycleTransfer">↓ Adicionar dinheiro</button>
+          <button class="transfer-action transfer-withdraw" id="withdrawMotorcycleTransfer">↑ Retirar dinheiro</button>
+          <button class="transfer-action motorcycle-expense-action" id="addMotorcycleExpense">＋ Registrar manutenção</button>
+        </div>
+        <div class="motorcycle-reserve-history">
+          <h3>Movimentações da reserva</h3>
+          <div id="motorcycleReserveHistory" class="motorcycle-history-list">
+            <div class="empty-state">Depósitos, retiradas e manutenções aparecerão aqui.</div>
+          </div>
+        </div>
+      </article>
     </section>
 
     <section class="section-block bills-section">
@@ -163,74 +204,61 @@
 
     <section class="section-block insights-block">
       <div class="section-heading">
-        <h2>Orçamento Inteligente</h2>
+        <h2>Orçamento do Mês</h2>
         <div class="goal-actions">
           <button class="eye-toggle" type="button" data-eye="smartBudgetValues" aria-label="Ocultar valores do orçamento"></button>
-          <button class="text-button limit-edit" id="editSmartBudget">Ajustar limite</button>
+          <button class="text-button limit-edit" id="editSmartBudget">Categorias</button>
         </div>
       </div>
       <div class="comparison-card smart-budget-card" aria-live="polite">
-        <div class="smart-budget-grid">
-          <div><span>Limite recomendado</span><strong id="smartBudgetRecommended">R$ 0,00</strong></div>
-          <div><span>Limite deste mês</span><strong id="smartBudgetLimit">R$ 0,00</strong></div>
-          <div><span>Dinheiro livre planejado</span><strong id="smartBudgetFreeMoney">R$ 0,00</strong></div>
-          <div><span>Percentual recomendado</span><strong id="smartBudgetRate">10%</strong></div>
-          <div><span>Já gastei</span><strong id="smartBudgetSpent">R$ 0,00</strong></div>
-          <div><span>Ainda disponível</span><strong id="smartBudgetRemaining">R$ 0,00</strong></div>
-        </div>
-        <div class="comparison-months"><span>Limite utilizado</span><strong id="smartBudgetPercent">0%</strong></div>
-        <div class="comparison-track smart-budget-track" role="progressbar" aria-label="Uso do orçamento" aria-valuemin="0" aria-valuemax="100">
-          <span id="smartBudgetBar"></span>
-        </div>
-        <div class="smart-budget-meta"><span id="smartBudgetDays">Dias restantes</span><span id="smartBudgetEstimateNote"></span></div>
-        <p class="smart-budget-status neutral" id="smartBudgetStatus"></p>
-        <p class="smart-budget-exceeded" id="smartBudgetExceeded" aria-live="polite"></p>
-        <p class="muted small smart-budget-calculation" id="smartBudgetCalculation"></p>
-        <details class="smart-budget-breakdown">
-          <summary>Valores usados no cálculo</summary>
-          <div class="smart-budget-breakdown-grid">
-            <span id="smartBudgetStartBalanceLabel">Saldo bancário na abertura</span><strong id="smartBudgetStartBalance">Indisponível</strong>
-            <span>Entradas futuras confiáveis</span><strong id="smartBudgetPlannedIncome">R$ 0,00</strong>
-            <span>Contas previstas</span><strong id="smartBudgetFixedCosts">R$ 0,00</strong>
-            <span>Despesas essenciais estimadas</span><strong id="smartBudgetEssentialCosts">R$ 0,00</strong>
-            <span>Gasolina estimada</span><strong id="smartBudgetGasCosts">R$ 0,00</strong>
-            <span>Reserva de segurança</span><strong id="smartBudgetSafetyReserve">R$ 0,00</strong>
-            <span>Dinheiro guardado (fora do cálculo)</span><strong id="smartBudgetSavingsExcluded">Histórico indisponível · fora do cálculo</strong>
-          </div>
-        </details>
+        <p class="muted small">A distribuição usa os ganhos registrados no mês e atualiza os valores automaticamente. Renda recebida: <strong id="budgetIncomeBasis">R$ 0,00</strong>.</p>
+        <div id="budgetGroupGrid" class="budget-group-grid"></div>
+        <h3 class="financial-plan-subheading">Fechamento do mês</h3>
+        <div id="monthlyClosingGrid" class="financial-plan-actuals"></div>
+        <p id="monthlyClosingNote" class="muted small"></p>
       </div>
     </section>
 
     <section class="section-block insights-block">
       <div class="section-heading">
-        <h2 id="financialPlanTitle">Planejamento do Próximo Mês</h2>
+        <h2 id="financialPlanTitle">Projeção do Próximo Mês</h2>
         <div class="goal-actions">
           <button class="eye-toggle" type="button" data-eye="financialPlanValues" aria-label="Ocultar valores do planejamento"></button>
           <span class="muted small" id="financialPlanMonth">Próximo mês</span>
         </div>
       </div>
       <div class="comparison-card financial-plan-card" aria-live="polite">
-        <p class="financial-plan-intro">Analisamos os lançamentos, as contas e o histórico disponível para estimar um plano flexível.</p>
-        <div class="financial-plan-grid">
-          <div><span>Renda estimada (não garantida)</span><strong class="positive" id="financialPlanIncome">R$ 0,00</strong></div>
-          <div><span>Contas previstas + fixas médias</span><strong id="financialPlanFixed">R$ 0,00</strong></div>
-          <div><span>Gasolina prevista</span><strong id="financialPlanGas">R$ 0,00</strong></div>
-          <div><span>Outras despesas necessárias</span><strong id="financialPlanNecessary">R$ 0,00</strong></div>
-          <div><span>Essenciais reservados (referência de 55%)</span><strong id="financialPlanEssential">R$ 0,00</strong></div>
-          <div><span>Recomendação para guardar</span><strong id="financialPlanSavings">R$ 0,00</strong></div>
-          <div><span>Limite para lazer e compras</span><strong id="financialPlanLeisure">R$ 0,00</strong></div>
-          <div><span>Margem de segurança</span><strong id="financialPlanSafety">R$ 0,00</strong></div>
-          <div><span>Saldo bancário projetado no fim do mês</span><strong id="financialPlanBankEnd">Indisponível</strong></div>
-          <div><span>Crescimento patrimonial estimado</span><strong id="financialPlanPatrimonyGrowth">R$ 0,00</strong></div>
-        </div>
+        <p class="financial-plan-intro">Renda prevista: <strong id="financialPlanIncome">R$ 0,00</strong></p>
         <p class="muted small financial-plan-basis" id="financialPlanIncomeBasis"></p>
         <p class="smart-budget-status neutral financial-plan-status" id="financialPlanStatus"></p>
+        <div id="financialPlanGroupGrid" class="budget-group-grid"></div>
+        <h3 class="financial-plan-subheading">Saldo e compromissos</h3>
+        <div id="financialPlanBankSummary" class="financial-plan-actuals"></div>
         <p class="muted small financial-plan-calculation" id="financialPlanCalculation"></p>
-        <h3 class="financial-plan-subheading" id="financialPlanActualTitle">Resultado do mês selecionado</h3>
-        <div class="financial-plan-actuals" id="financialPlanActuals"></div>
-        <div class="financial-plan-progress" id="financialPlanProgress"></div>
-        <p class="muted small financial-plan-progress-note" id="financialPlanProgressNote"></p>
-        <div class="financial-plan-evolution" id="financialPlanEvolution" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="section-block insights-block">
+      <div class="section-heading">
+        <h2>Saúde financeira</h2>
+        <div class="goal-actions">
+          <span class="muted small" id="financialHealthMonth">Mês atual</span>
+          <button class="eye-toggle" type="button" data-eye="financialHealthValues" aria-label="Ocultar indicador de saúde financeira"></button>
+        </div>
+      </div>
+      <div class="comparison-card financial-health-card" aria-live="polite">
+        <div class="health-score-gauge insufficient" id="financialHealthGauge" role="progressbar"
+          aria-label="Pontuação de saúde financeira indisponível" aria-valuemin="0" aria-valuemax="100"
+          aria-valuetext="Dados insuficientes">
+          <div class="health-score-content"><strong id="financialHealthScore">—</strong><span>/100</span></div>
+        </div>
+        <div class="financial-health-copy">
+          <strong class="health-rating insufficient" id="financialHealthRating">Dados insuficientes</strong>
+          <p id="financialHealthExplanation">Ainda não há dados confiáveis em critérios suficientes para gerar uma nota.</p>
+          <p class="health-recommendation" id="financialHealthRecommendation"></p>
+        </div>
+        <p class="muted small health-detail" id="financialHealthDetail"></p>
+        <p class="muted small health-method">A avaliação considera o saldo real da reserva da moto, as contribuições registradas e a meta mensal de 5%.</p>
       </div>
     </section>
 
@@ -343,11 +371,20 @@
       <div id="entryBudgetGroupField" hidden>
         <label for="entryBudgetGroup">Classificação do gasto</label>
         <select id="entryBudgetGroup">
-          <option value="fixed">Gasto fixo</option>
-          <option value="necessary">Variável necessário</option>
-          <option value="nonessential">Não essencial</option>
+          <option value="essential">Contas essenciais</option>
+          <option value="free">Gastos livres</option>
+          <option value="savings">Guardar</option>
+          <option value="motorcycle">Reserva da moto</option>
         </select>
-        <p class="muted small">A classificação inicial é sugerida pela categoria e pode ser alterada. Gastos fixos e necessários não consomem o orçamento não essencial.</p>
+        <p class="muted small">A classificação padrão vem da categoria, mas pode ser alterada neste lançamento.</p>
+      </div>
+      <div id="entryPaymentSourceField" hidden>
+        <label for="entryPaymentSource">Pago com</label>
+        <select id="entryPaymentSource">
+          <option value="bank">Conta bancária</option>
+          <option value="motorcycle">Reserva da moto</option>
+        </select>
+        <p class="muted small">Pagamentos da reserva reduzem a caixinha, não o saldo bancário.</p>
       </div>
       <label for="entryDate">Data</label>
       <input id="entryDate" type="date" required>
@@ -365,7 +402,10 @@
       <div><p class="eyebrow">PERSONALIZE SEUS REGISTROS</p><h2>Categorias personalizadas</h2></div>
       <button type="button" class="close-button" data-close="categoryManagerDialog" aria-label="Fechar">×</button>
     </div>
-    <p class="muted small">Categorias arquivadas continuam identificando lançamentos antigos e não aparecem em novos registros.</p>
+    <p class="muted small">A classificação padrão vale para novas despesas; cada lançamento também pode ser ajustado individualmente. Categorias arquivadas continuam identificando lançamentos antigos.</p>
+    <h3 class="financial-plan-subheading">Classificação padrão das categorias</h3>
+    <div id="budgetCategoryClassifications" class="budget-category-classifications"></div>
+    <h3 class="financial-plan-subheading">Categorias personalizadas</h3>
     <div id="customCategoryList" class="custom-category-list"></div>
     <div class="modal-actions">
       <button type="button" class="secondary-button" data-close="categoryManagerDialog">Fechar</button>
@@ -389,9 +429,10 @@
       <div id="categoryExpenseGroupField">
         <label for="categoryExpenseGroup">Classificação financeira</label>
         <select id="categoryExpenseGroup">
-          <option value="fixed">Fixa</option>
-          <option value="necessary">Essencial variável</option>
-          <option value="nonessential">Não essencial</option>
+          <option value="essential">Contas essenciais</option>
+          <option value="free">Gastos livres</option>
+          <option value="savings">Guardar</option>
+          <option value="motorcycle">Reserva da moto</option>
         </select>
       </div>
       <p class="muted small" id="categoryTypeNote">Receitas são identificadas separadamente e não recebem classificação de despesa.</p>
@@ -449,8 +490,12 @@
       </div>
       <label for="transferDirection">Tipo</label>
       <select id="transferDirection" required>
-        <option value="save">Guardar dinheiro (banco → guardado)</option>
-        <option value="withdraw">Resgatar dinheiro (guardado → banco)</option>
+        <option value="bank:savings">Guardar dinheiro (conta → guardado)</option>
+        <option value="savings:bank">Resgatar dinheiro (guardado → conta)</option>
+        <option value="bank:motorcycle">Adicionar à reserva da moto (conta → moto)</option>
+        <option value="motorcycle:bank">Retirar da reserva da moto (moto → conta)</option>
+        <option value="savings:motorcycle">Transferir do guardado para a reserva da moto</option>
+        <option value="motorcycle:savings">Transferir da reserva da moto para o guardado</option>
       </select>
       <label for="transferAmount">Valor (R$)</label>
       <input id="transferAmount" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required>
@@ -458,7 +503,7 @@
       <input id="transferDate" type="date" required>
       <label for="transferDescription">Descrição <span class="muted">(opcional)</span></label>
       <input id="transferDescription" type="text" maxlength="70" placeholder="Ex.: reserva de emergência">
-      <p class="muted small">O saldo disponível será conferido na data informada. Para transferências antigas, os históricos bancário e do dinheiro guardado precisam cobrir essa data.</p>
+      <p class="muted small">O saldo de origem será conferido na data informada. Uma retirada da reserva da moto que deixe saldo negativo exige confirmação.</p>
       <div class="modal-actions">
         <button type="button" class="secondary-button" data-close="transferDialog">Cancelar</button>
         <button type="submit" class="submit-button" id="transferSubmit">Salvar transferência</button>
@@ -524,6 +569,11 @@
   <dialog id="billPaymentDialog" class="modal">
     <div class="modal-head"><h2>Registrar pagamento?</h2><button type="button" class="close-button" data-close="billPaymentDialog" aria-label="Fechar">×</button></div>
     <p class="muted" id="billPaymentMessage"></p>
+    <label for="billPaymentSource">Pagar com</label>
+    <select id="billPaymentSource">
+      <option value="bank">Conta bancária</option>
+      <option value="motorcycle">Reserva da moto</option>
+    </select>
     <div class="modal-actions">
       <button type="button" class="secondary-button" data-close="billPaymentDialog">Cancelar</button>
       <button type="button" class="submit-button" id="confirmBillPayment">Marcar como paga</button>
@@ -559,7 +609,7 @@
       <input id="goalName" type="text" maxlength="70" placeholder="Ex.: viagem, computador..." required>
       <label for="goalTarget">Valor desejado (R$)</label>
       <input id="goalTarget" class="amount-input" type="number" min="0.01" step="0.01" inputmode="decimal" required>
-      <p class="muted small">O progresso acompanha automaticamente o patrimônio do mês selecionado, somando saldo bancário e dinheiro guardado.</p>
+      <p class="muted small">O progresso acompanha automaticamente o patrimônio do mês selecionado, somando saldo bancário, dinheiro guardado e reserva da moto.</p>
       <div class="modal-actions">
         <button type="button" class="secondary-button" data-close="goalDialog">Cancelar</button>
         <button type="submit" class="submit-button" id="goalSubmit">Salvar meta</button>
@@ -584,9 +634,11 @@
     <p class="muted">Exporte uma cópia dos seus lançamentos para guardar ou transferir para outro aparelho. Restaurar substitui os dados atuais.</p>
     <div class="backup-actions">
       <button class="submit-button" id="exportBtn">Baixar backup</button>
+      <button class="secondary-button" id="analysisExportBtn" type="button">Analisar com ChatGPT</button>
       <label class="upload-button">Restaurar backup<input id="importFile" type="file" accept="application/json"></label>
     </div>
-    <p class="small muted" id="backupMessage"></p>
+    <p class="small muted">O arquivo contém seus dados financeiros e é baixado neste aparelho; envie-o ao Google Drive e depois anexe-o ao ChatGPT.</p>
+    <p class="small muted" id="backupMessage" aria-live="polite"></p>
   </dialog>
 
   <dialog id="confirmDialog" class="modal">
